@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Ultralytics training output (keep only the final weights in ai/weights/)
+runs/
+ai/datasets/
+
+# Arduino / PlatformIO
+iot/**/build/
+.pio/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

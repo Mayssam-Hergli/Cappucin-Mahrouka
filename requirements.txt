@@ -1,0 +1,17 @@
+# server/
+flask>=3.0
+
+# sim/ (the simulation itself is pure Python; matplotlib is only for the viewer)
+matplotlib>=3.8
+
+# vision/
+opencv-python>=4.9
+ultralytics>=8.2
+
+# voice/
+pyttsx3>=2.90
+SpeechRecognition>=3.10
+pyaudio>=0.2.14
+
+# vision/, voice/, server/fake_sensor.py (HTTP clients)
+requests>=2.31

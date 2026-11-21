@@ -22,8 +22,28 @@ POST http://SERVER_IP:5000/api/sensor
 {"node": "N1", "zone": "Z2", "gas": 1830, "temp": 31.2, "flame": 0, "level": "ALARM", "cause": "gas"}
 ```
 
-`node` and `zone` must match a sensor declared in `sim/factory.json`.
+`node` and `zone` must match a sensor declared in `sim/factory.json`: `N1`/`Z2` (default), `N2`/`Z1`, `N3`/`Z3`, `N4`/`Z4`.
+When the level is `NORMAL`, `cause` is `"none"`; otherwise it is `"gas"`, `"temp"` or `"flame"`.
+
+## Simulate in Wokwi (no hardware needed)
+
+**Live simulation:** https://wokwi.com/projects/481306010649524225
+
+The same firmware runs in the [Wokwi](https://wokwi.com) ESP32 simulator, with a virtual gas sensor, DHT22, flame sensor, LEDs and buzzer. Wokwi's flame sensor has no control during a simulation, so it always reads "no flame"; the flame rule is tested on the real hardware.
+
+| File | Paste into Wokwi tab |
+|---|---|
+| [`hrika_node/hrika_node.ino`](hrika_node/hrika_node.ino) | `sketch.ino` |
+| [`wokwi/diagram.json`](wokwi/diagram.json) | `diagram.json` |
+| [`wokwi/libraries.txt`](wokwi/libraries.txt) | `libraries.txt` (`DHT sensor library` + `Adafruit Unified Sensor`) |
+
+Press Play, then click a sensor to move its slider:
+
+- Raise the gas ppm, and the node goes `WARNING` then `ALARM (gas)`.
+- Raise the temperature fast (+5 °C in 10 s), and you get `ALARM (temp)`, even below 50 °C.
+- Raise it slowly (a warm hand), and it stays `NORMAL`.
+The simulated ESP32 reaches the internet through Wokwi, so it cannot reach a private `192.168.x.x` address. Expose the server with a tunnel (`cloudflared tunnel --url http://localhost:5000`) and set `SERVER_URL` to `https://<tunnel>.trycloudflare.com/api/sensor`.
 
 ## Flash
 
-Open the firmware in the Arduino IDE, set the WiFi credentials and `SERVER_IP`, select the ESP32 board and upload.
+Open [`hrika_node/hrika_node.ino`](hrika_node/hrika_node.ino) in the Arduino IDE. In the settings block at the top, set `IN_WOKWI = false`, the WiFi credentials and `SERVER_URL = "http://SERVER_IP:5000/api/sensor"`. Then select the ESP32 board and upload.

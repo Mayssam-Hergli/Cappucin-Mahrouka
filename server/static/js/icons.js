@@ -50,6 +50,8 @@ const Icons = (() => {
     box: "box", map: "map", timer: "timer", users: "users", enter: "log-in", leave: "log-out",
     scan: "scan-eye", bell: "bell", door: "door-open", zap: "zap", fuel: "fuel",
     locate: "locate-fixed", siren: "siren", pulse: "heart-pulse", waypoints: "waypoints",
+    plus: "plus", minus: "minus", "rot-l": "rotate-ccw", "rot-r": "rotate-cw", walls: "brick-wall",
+    follow: "crosshair",
   };
   const LU = window.LUCIDE || {};
   for (const [k, l] of Object.entries(LUCIDE_NAME)) if (LU[l]) UI[k] = LU[l];

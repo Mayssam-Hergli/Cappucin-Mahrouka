@@ -27,6 +27,8 @@ from zones import Analyzer  # noqa: E402
 PHASES = ["NORMAL", "ALERT", "CHECKING", "CONFIRMED", "EN_ROUTE", "DRONE_INSIDE", "PLANS_READY"]
 RUNNING = {"CONFIRMED", "EN_ROUTE", "DRONE_INSIDE", "PLANS_READY"}
 STEP_S = 0.5
+FORECAST_S = 300       # horizon de la prévision (secondes simulées)
+FORECAST_EVERY = 30    # recalcul en EN_ROUTE et DRONE_INSIDE (secondes réelles)
 
 
 def factory_path():
@@ -81,6 +83,11 @@ class Hub:
             self.last_vision_add = 0
             self.decisions = {}
             self.forecast = []
+            self.forecast_eta = {}
+            self.forecast_t0 = None
+            self.forecast_at = 0
+            self.forecast_busy = False
+            self.forecast_gen = getattr(self, "forecast_gen", 0) + 1
             self.ignore_alarm_until = 0
             self.known_found = set()
             self.drone_state = None
@@ -113,6 +120,8 @@ class Hub:
             if st:
                 self._watch_victims(st)
                 self._watch_drone(st)
+            if self.phase in ("EN_ROUTE", "DRONE_INSIDE") and now - self.forecast_at > FORECAST_EVERY:
+                self.start_forecast(quiet=True)
             if self.phase == "FALSE_ALARM" and now - self.phase_at > 4:
                 self.set_phase("NORMAL", "Retour en surveillance normale.")
 
@@ -264,22 +273,78 @@ class Hub:
             d["temp"] = to if to is not None else d["temp"] + delta
 
     # ------------------------------------------------------------ prévision
-    def start_forecast(self):
+    def start_forecast(self, quiet=False):
+        """Prévision du feu sur une copie de la simulation (la vraie n'est pas modifiée).
+
+        Remplit self.forecast (cellules en feu à +3 min, contrat d'origine) et
+        self.forecast_eta = {"x,y": secondes simulées avant embrasement}, relatif à
+        self.forecast_t0 (temps de la Sim au moment du calcul). Recalculée toutes les
+        FORECAST_EVERY secondes en EN_ROUTE et DRONE_INSIDE (voir tick)."""
+        if self.forecast_busy:
+            return
+        self.forecast_busy = True
+        self.forecast_at = time.time()
+        gen = self.forecast_gen
+
         def run():
+            eta, fire3, t0 = {}, [], None
             try:
-                if hasattr(self.sim, "forecast"):     # vraie Sim : prévision sur une copie interne
-                    fire = self.sim.forecast(3)["fire"]
+                sim = self.sim
+                if hasattr(sim, "hazards") and hasattr(sim, "_lock"):
+                    # vraie Sim : on avance une copie des dangers pas à pas et on note
+                    # le pas où chaque cellule s'enflamme (même copie que Sim.forecast)
+                    dt = float(getattr(sys.modules.get(type(sim).__module__), "DT", 2.0))
+                    with sim._lock:
+                        hz = copy.deepcopy(sim.hazards, {id(sim.factory): sim.factory})
+                        t0 = sim.t
+                    now_burning = set(hz.burning)
+                    for i in range(int(FORECAST_S / dt)):
+                        hz.step(heat=False)
+                        for c in hz.burning:
+                            if c not in now_burning and c not in eta:
+                                eta[c] = (i + 1) * dt
+                        if not fire3 and (i + 1) * dt >= 180:
+                            fire3 = [list(c) for c in hz.burning]
                 else:                                 # FakeSim : pas de 0,5 s
                     with self.lock:
-                        s = copy.deepcopy(self.sim)
-                    for _ in range(360):          # 3 min simulées
+                        s = copy.deepcopy(sim)
+                    t0 = s.state().get("t", 0)
+                    now_burning = {tuple(c) for c in s.state().get("fire", [])}
+                    for i in range(int(FORECAST_S / 0.5)):
                         s.step()
-                    fire = s.state().get("fire", [])
-                with self.lock:
-                    self.forecast = fire
-                    self.log("Prévision du feu à +3 min calculée", "info")
-            except Exception as e:
-                print("[hub] prévision impossible :", e)
+                        if i % 4 == 3:
+                            fire = s.state().get("fire", [])
+                            for c in fire:
+                                c = tuple(c)
+                                if c not in now_burning and c not in eta:
+                                    eta[c] = (i + 1) * 0.5
+                            if not fire3 and (i + 1) * 0.5 >= 180:
+                                fire3 = [list(c) for c in fire]
+            except Exception as e:                    # copie impossible : prévision par paliers
+                print("[hub] prévision détaillée impossible :", e)
+                try:
+                    if hasattr(self.sim, "forecast"):
+                        t0 = self.sim.state().get("t", 0)
+                        now_burning = {tuple(c) for c in self.sim.state().get("fire", [])}
+                        for m in (1, 3, 5):
+                            fire = self.sim.forecast(m)["fire"]
+                            if m == 3:
+                                fire3 = fire
+                            for c in fire:
+                                c = tuple(c)
+                                if c not in now_burning and c not in eta:
+                                    eta[c] = m * 60.0
+                except Exception as e2:
+                    print("[hub] prévision impossible :", e2)
+            with self.lock:
+                self.forecast_busy = False
+                if gen != self.forecast_gen:          # reset entre-temps : résultat périmé
+                    return
+                self.forecast = fire3
+                self.forecast_eta = {f"{x},{y}": round(v, 1) for (x, y), v in eta.items()}
+                self.forecast_t0 = t0
+                if not quiet:
+                    self.log("Prévision du feu calculée (5 min, recalculée toutes les 30 s)", "info")
         threading.Thread(target=run, daemon=True).start()
 
     # ----------------------------------------------------------------- état
@@ -300,6 +365,10 @@ class Hub:
                 "camera": self.camera,
                 "decisions": self.decisions,
                 "forecast": self.forecast if self.phase == "EN_ROUTE" else [],
+                # en plus : instant d'embrasement prévu par cellule (secondes simulées après forecast_t0)
+                "forecast_eta": self.forecast_eta if self.phase in RUNNING else {},
+                "forecast_t0": self.forecast_t0,
+                "forecast_at": self.forecast_at,
                 "speed": self.speed,
                 "sim_kind": self.sim_kind,
             })

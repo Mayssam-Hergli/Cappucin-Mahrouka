@@ -40,9 +40,33 @@
     <canvas id="map"></canvas>
     <div class="map3d" id="map3d" hidden>
       <div class="m3-tools">
-        <button class="m3-btn" id="m3Overview" type="button" title="Revenir à la vue d'ensemble"><svg class="ic" aria-hidden="true"><use href="#i-locate"></use></svg>Vue d'ensemble</button>
+        <button class="m3-btn" id="m3Overview" type="button" title="Revenir à la vue d'ensemble (H)"><svg class="ic" aria-hidden="true"><use href="#i-locate"></use></svg>Vue d'ensemble</button>
+        <div class="m3-seg" role="group" aria-label="Prévision du feu (flammes fantômes)">
+          <span class="m3-seg-lab">Prévision</span>
+          <button type="button" data-ghost="0" aria-pressed="false" title="Masquer la prévision">Non</button>
+          <button type="button" data-ghost="1" aria-pressed="false" title="Feu prévu dans la minute">+1 min</button>
+          <button type="button" data-ghost="3" aria-pressed="true" title="Feu prévu dans les 3 minutes">+3 min</button>
+          <button type="button" data-ghost="5" aria-pressed="false" title="Feu prévu dans les 5 minutes">+5 min</button>
+        </div>
       </div>
-      <div class="m3-hint">Glisser : tourner · Clic droit : déplacer · Molette : zoom · Clic : zone ou victime</div>
+      <div class="m3-nav" role="toolbar" aria-label="Commandes de la vue 3D">
+        <button class="m3-compass" type="button" data-nav="north" title="Remettre le nord en haut (N)" aria-label="Nord en haut">
+          <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="18.5" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+            <g id="m3Needle"><path d="M20 6l4.5 14h-9z" fill="var(--alarm)"/><path d="M20 34l-4.5-14h9z" fill="currentColor" fill-opacity=".45"/>
+            <text x="20" y="5.2" text-anchor="middle" font-size="6.5" font-weight="700" fill="currentColor" dominant-baseline="hanging" transform="translate(0 -4.6)">N</text></g></svg>
+        </button>
+        <span class="m3-sep"></span>
+        <button type="button" data-nav="zin" title="Zoom avant (+)" aria-label="Zoom avant"><svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg></button>
+        <button type="button" data-nav="zout" title="Zoom arrière (-)" aria-label="Zoom arrière"><svg class="ic" aria-hidden="true"><use href="#i-minus"></use></svg></button>
+        <span class="m3-sep"></span>
+        <button type="button" data-nav="rl" title="Tourner à gauche de 45° (Q)" aria-label="Tourner à gauche"><svg class="ic" aria-hidden="true"><use href="#i-rot-l"></use></svg></button>
+        <button type="button" data-nav="rr" title="Tourner à droite de 45° (E)" aria-label="Tourner à droite"><svg class="ic" aria-hidden="true"><use href="#i-rot-r"></use></svg></button>
+        <span class="m3-sep"></span>
+        <button type="button" data-nav="top" aria-pressed="false" title="Vue de dessus / vue inclinée (T)" aria-label="Vue de dessus"><svg class="ic" aria-hidden="true"><use href="#i-map"></use></svg></button>
+        <button type="button" data-nav="walls" aria-pressed="false" title="Murs bas : voir à l'intérieur des pièces (B)" aria-label="Murs bas"><svg class="ic" aria-hidden="true"><use href="#i-walls"></use></svg></button>
+        <button type="button" data-nav="follow" aria-pressed="false" title="Suivre le drone (F)" aria-label="Suivre le drone"><svg class="ic" aria-hidden="true"><use href="#i-follow"></use></svg></button>
+      </div>
+      <div class="m3-hint">Glisser : tourner · Clic droit : déplacer · Molette : zoom vers le curseur · Double-clic : s'approcher · Flèches, Q/E, T, B, F</div>
     </div>
     <div class="tooltip" id="tooltip"></div>
 
@@ -93,6 +117,10 @@
       <ol class="track" id="decisions"></ol>
     </section>
 
+    <section class="sec" id="cardCountdown" hidden aria-label="Délais critiques">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-timer"></use></svg>Délais critiques <span class="meta">Prévision sans intervention</span></h3>
+      <ul class="cd-list" id="countdowns" aria-live="polite"></ul>
+    </section>
     <section class="sec" id="cardDrone">
       <h3><svg class="ic" aria-hidden="true"><use href="#i-drone"></use></svg>Drone éclaireur</h3>
       <div class="cam" id="cam">
@@ -149,6 +177,7 @@
 <script src="/static/js/loupe.js"></script>
 <script src="/static/js/panel.js"></script>
 <script src="/static/js/app.js"></script>
+<script src="/static/js/countdown.js"></script>
 <script type="importmap">
 { "imports": { "three": "/static/vendor/three.module.js", "three/addons/": "/static/vendor/addons/" } }
 </script>

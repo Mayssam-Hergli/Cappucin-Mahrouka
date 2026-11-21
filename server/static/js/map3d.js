@@ -112,6 +112,13 @@ class View3DImpl {
     this.controls.maxPolarAngle = Math.PI * 0.46;
     this.controls.minDistance = 5;
     this.controls.maxDistance = 90;
+    this.controls.zoomToCursor = true;          // la molette zoome vers le point visé
+    this.controls.zoomSpeed = 1.2;
+    this.controls.rotateSpeed = 0.7;
+    this.wallH = WALL_H;        // hauteur affichée des murs (murs bas = vue en coupe)
+    this.wallTarget = WALL_H;
+    this.follow = false;        // la caméra suit le drone
+    this.ghostMin = 3;          // flammes fantômes : prévision à +N min (0 = masquées)
     this.controls.addEventListener("start", () => { this.fly = null; });
     this.overview(true);
 
@@ -193,9 +200,11 @@ class View3DImpl {
       world.add(mesh);
       return mesh;
     };
-    inst(new THREE.BoxGeometry(1, WALL_H, 1), wallMat, walls, (m, [x, y]) => m.makeTranslation(this.wx(x), WALL_H / 2, this.wz(y)));
-    inst(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), capMat, walls, (m, [x, y]) => m.makeTranslation(this.wx(x), WALL_H + 0.002, this.wz(y)));
-    inst(new THREE.BoxGeometry(1, 0.7, 1), wallMat, lintels, (m, [x, y]) => m.makeTranslation(this.wx(x), WALL_H - 0.35, this.wz(y)));
+    this.wallCells = walls;
+    this.wallMesh = inst(new THREE.BoxGeometry(1, 1, 1), wallMat, walls, () => {});
+    this.capMesh = inst(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), capMat, walls, () => {});
+    this.lintelMesh = inst(new THREE.BoxGeometry(1, 0.7, 1), wallMat, lintels, (m, [x, y]) => m.makeTranslation(this.wx(x), WALL_H - 0.35, this.wz(y)));
+    this._applyWalls(this.wallH);
 
     // stocks
     const P = [], F = [], Gc = [], X = [];
@@ -397,6 +406,12 @@ class View3DImpl {
 
     // capteurs fixes
     this.sensorMeshes = new Map();
+
+    // prévision : flammes fantômes là où le feu arrivera dans les N prochaines minutes
+    this.ghostMesh = mkInst(new THREE.ConeGeometry(0.3, 1, 10).translate(0, 0.5, 0),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32, depthWrite: false }), W * H);
+    this.ghostTile = mkInst(flat(), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, depthWrite: false }), W * H);
+    this.ghostMesh.renderOrder = 4;
 
     // plans et trajectoire
     this.planGroup = new THREE.Group(); world.add(this.planGroup);
@@ -608,8 +623,37 @@ class View3DImpl {
       this.fogMesh.instanceMatrix.needsUpdate = true;
     }
 
+    // prévision : flammes fantômes (couleur : rouge = bientôt, ambre = plus tard)
+    const eta = s.forecast_eta || {};
+    const horizon = this.ghostMin * 60;
+    const elapsed = (s.t != null && s.forecast_t0 != null) ? s.t - s.forecast_t0 : 0;
+    const ghostOn = L.fire && horizon > 0 && ["EN_ROUTE", "DRONE_INSIDE", "PLANS_READY"].includes(s.phase);
+    this.ghostMesh.visible = this.ghostTile.visible = ghostOn;
+    if (ghostOn) {
+      let n = 0;
+      const c = new THREE.Color(), soon = col(T["alarm"]), late = col(T["amber"]);
+      for (const [k, sec] of Object.entries(eta)) {
+        const rem = sec - elapsed;
+        if (rem <= 0 || rem > horizon || Lv.fireNow.has(k)) continue;
+        const [x, y] = k.split(",").map(Number);
+        const f = rem / horizon;
+        c.copy(soon).lerp(late, f);
+        const top = this.stockTop(x, y);
+        const h = 0.6 + 0.5 * (1 - f) + 0.08 * Math.sin(t * 3 + x * 1.3 + y);
+        m4.compose(v3.set(this.wx(x), top, this.wz(y)), q.identity(), sc.set(1, h, 1));
+        this.ghostMesh.setMatrixAt(n, m4); this.ghostMesh.setColorAt(n, c);
+        m4.makeTranslation(this.wx(x), 0.03, this.wz(y));
+        this.ghostTile.setMatrixAt(n, m4); this.ghostTile.setColorAt(n, c);
+        n++;
+      }
+      this.ghostMesh.count = this.ghostTile.count = n;
+      this.ghostMesh.instanceMatrix.needsUpdate = this.ghostTile.instanceMatrix.needsUpdate = true;
+      if (n) this.ghostMesh.instanceColor.needsUpdate = this.ghostTile.instanceColor.needsUpdate = true;
+    }
+
     // zones en alerte
     for (const [id, grp] of Object.entries(this.zoneFrames)) {
+      grp.position.y = this.wallH - WALL_H;
       const zs = s.zones && s.zones[id];
       const lvl = zs ? zs.level : "NORMAL";
       grp.visible = lvl !== "NORMAL";
@@ -809,6 +853,11 @@ class View3DImpl {
       tip.style.top = Math.min(ty, this.host.offsetTop + r.height - 120) + "px";
     });
     el.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+    el.addEventListener("dblclick", (ev) => {      // double-clic : s'approcher de ce point
+      at(ev); const c = cellAt(); if (!c) return;
+      this.follow = false; syncNav();
+      this.flyToCell(c[0], c[1], Math.max(6, this._offset().length() * 0.6), 700);
+    });
     let down = null;
     el.addEventListener("pointerdown", (ev) => { down = [ev.clientX, ev.clientY]; });
     el.addEventListener("pointerup", (ev) => {
@@ -827,6 +876,83 @@ class View3DImpl {
       const z = typeof MainMap !== "undefined" && MainMap ? MainMap.zoneAt(c[0], c[1]) : null;
       if (z) { this.flyToZone(z.id); if (typeof Loupe !== "undefined") Loupe.open(z.id); }
     });
+  }
+
+  // -------------------------------------------------------------- commandes (boutons, clavier)
+  _offset() { return this.camera.position.clone().sub(this.controls.target); }
+  zoom(f) {
+    const off = this._offset();
+    const d = THREE.MathUtils.clamp(off.length() * f, this.controls.minDistance, this.controls.maxDistance);
+    this._flyTo(this.controls.target.clone(), this.controls.target.clone().add(off.setLength(d)), 320);
+  }
+  rotate(a) {
+    const off = this._offset().applyAxisAngle(UP, a);
+    this._flyTo(this.controls.target.clone(), this.controls.target.clone().add(off), 450);
+  }
+  north() {
+    const off = this._offset(), r = Math.hypot(off.x, off.z);
+    this._flyTo(this.controls.target.clone(), this.controls.target.clone().add(new THREE.Vector3(0, off.y, r)), 500);
+  }
+  isTop() { const off = this._offset(); return Math.hypot(off.x, off.z) < off.length() * 0.1; }
+  topView() {
+    const off = this._offset(), d = off.length(), top = this.isTop();
+    const az = Math.atan2(off.x, off.z), polar = top ? 0.9 : 0.02;
+    const pos = new THREE.Vector3(Math.sin(polar) * Math.sin(az), Math.cos(polar), Math.sin(polar) * Math.cos(az)).multiplyScalar(d);
+    this._flyTo(this.controls.target.clone(), this.controls.target.clone().add(pos), 600);
+    this.topWanted = !top;
+  }
+  pan(right, fwd) {
+    const off = this._offset();
+    const f = new THREE.Vector3(-off.x, 0, -off.z);
+    if (f.lengthSq() < 1e-6) f.set(0, 0, -1);
+    f.normalize();
+    const r = new THREE.Vector3(-f.z, 0, f.x);
+    const step = Math.max(1.5, off.length() * 0.12);
+    const d = r.multiplyScalar(right * step).add(f.multiplyScalar(fwd * step));
+    this._flyTo(this.controls.target.clone().add(d), this.camera.position.clone().add(d), 260);
+  }
+  setWalls(low) { this.wallTarget = low ? 1.1 : WALL_H; }
+  _applyWalls(h) {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), s = new THREE.Vector3();
+    this.wallCells.forEach(([x, y], i) => {
+      m.compose(v.set(this.wx(x), h / 2, this.wz(y)), q, s.set(1, h, 1)); this.wallMesh.setMatrixAt(i, m);
+      m.makeTranslation(this.wx(x), h + 0.002, this.wz(y)); this.capMesh.setMatrixAt(i, m);
+    });
+    this.wallMesh.instanceMatrix.needsUpdate = this.capMesh.instanceMatrix.needsUpdate = true;
+    this.lintelMesh.visible = h > WALL_H - 0.4;
+  }
+  // garde le point visé dans l'emprise du bâtiment (on ne se perd pas dans le vide)
+  _clamp() {
+    const tg = this.controls.target, mx = this.W / 2 + 4, mz = this.H / 2 + 4;
+    const cx = THREE.MathUtils.clamp(tg.x, -mx, mx), cz = THREE.MathUtils.clamp(tg.z, -mz, mz);
+    if (cx !== tg.x || cz !== tg.z || tg.y !== 0) {
+      const d = new THREE.Vector3(cx - tg.x, -tg.y, cz - tg.z);
+      tg.add(d); this.camera.position.add(d);
+    }
+  }
+  _frameExtras(dt) {
+    if (!this.wallMesh) return;
+    // murs : animation vers la hauteur demandée
+    if (Math.abs(this.wallH - this.wallTarget) > 0.005) {
+      this.wallH += (this.wallTarget - this.wallH) * (1 - Math.exp(-dt * 10));
+      if (Math.abs(this.wallH - this.wallTarget) < 0.01) this.wallH = this.wallTarget;
+      this._applyWalls(this.wallH);
+    }
+    // suivi du drone : la caméra glisse avec lui en gardant son angle
+    if (this.follow && !this.fly && this.droneRoot && this.droneRoot.visible) {
+      const tg = this.controls.target, dp = this.droneRoot.position;
+      const d = new THREE.Vector3(dp.x - tg.x, 0, dp.z - tg.z).multiplyScalar(1 - Math.exp(-dt * 3));
+      tg.add(d); this.camera.position.add(d);
+    }
+    if (!this.fly) this._clamp();
+    // boussole : l'aiguille indique le nord à l'écran
+    const off = this._offset();
+    const az = Math.atan2(off.x, off.z) * 180 / Math.PI;
+    if (this.needle && Math.abs(az - (this._az == null ? 999 : this._az)) > 0.2) {
+      this.needle.setAttribute("transform", `rotate(${az.toFixed(1)} 20 20)`); this._az = az;
+    }
+    const top = this.fly ? this.topWanted : this.isTop();
+    if (top !== this._lastTop) { this._lastTop = top; syncNav(); }
   }
 
   // -------------------------------------------------------------- boucle
@@ -854,6 +980,7 @@ class View3DImpl {
         const s = G().s;
         if (this.world && s) this._sync(s, now, t, dt);
         this._stepFly(now);
+        this._frameExtras(dt);
         this.controls.update();
         this.renderer.render(this.scene, this.camera);
       } catch (e) { console.error(e); }
@@ -864,6 +991,16 @@ class View3DImpl {
 }
 
 // ------------------------------------------------------------------ branchement dans la page
+// état des boutons de la vue 3D (aria-pressed)
+function syncNav() {
+  const v = window.View3D && window.View3D.impl;
+  if (!v) return;
+  const set = (sel, on) => { const b = document.querySelector(sel); if (b) b.setAttribute("aria-pressed", String(on)); };
+  set('[data-nav="walls"]', v.wallTarget !== WALL_H);
+  set('[data-nav="follow"]', v.follow);
+  set('[data-nav="top"]', v.fly ? !!v.topWanted : v.isTop());
+  document.querySelectorAll("[data-ghost]").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.ghost === v.ghostMin)));
+}
 const View3D = window.View3D = {
   active: false,
   impl: null,
@@ -886,7 +1023,8 @@ const View3D = window.View3D = {
     map2d.style.visibility = on ? "hidden" : "";
     document.getElementById("tooltip").style.display = "none";
     document.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.view === "3d") === on)));
-    if (on) { this.place(); this.impl.resize(); this.impl.start(); } else if (this.impl) this.impl.stop();
+    if (on) { this.impl.needle = document.getElementById("m3Needle"); this.place(); this.impl.resize(); this.impl.start(); syncNav(); }
+    else if (this.impl) this.impl.stop();
   },
   // la vue 3D recouvre exactement le canvas 2D (au-dessus de la barre de la carte)
   place() {
@@ -894,7 +1032,19 @@ const View3D = window.View3D = {
     host.style.top = map2d.offsetTop + "px";
     host.style.height = map2d.offsetHeight + "px";
   },
-  overview() { if (this.impl) this.impl.overview(false); },
+  overview() { if (this.impl) { this.impl.follow = false; this.impl.topWanted = false; this.impl.overview(false); syncNav(); } },
+  nav(a) {
+    const v = this.impl; if (!v || !this.active) return;
+    if (a === "zin") v.zoom(0.72); else if (a === "zout") v.zoom(1.38);
+    else if (a === "rl") v.rotate(Math.PI / 4); else if (a === "rr") v.rotate(-Math.PI / 4);
+    else if (a === "north") v.north();
+    else if (a === "top") v.topView();
+    else if (a === "walls") v.setWalls(v.wallTarget === WALL_H);
+    else if (a === "follow") v.follow = !v.follow;
+    else if (a === "home") { this.overview(); return; }
+    syncNav();
+  },
+  setGhost(min) { if (this.impl) this.impl.ghostMin = min; syncNav(); },
   flyToZone(id) { if (this.impl) this.impl.flyToZone(id); },
 };
 
@@ -903,10 +1053,19 @@ const View3D = window.View3D = {
   document.querySelectorAll("[data-view]").forEach((b) => { b.onclick = () => View3D.show(b.dataset.view === "3d"); });
   const ov = document.getElementById("m3Overview");
   if (ov) ov.onclick = () => View3D.overview();
+  document.querySelectorAll("[data-nav]").forEach((b) => { b.onclick = () => View3D.nav(b.dataset.nav); });
+  document.querySelectorAll("[data-ghost]").forEach((b) => { b.onclick = () => View3D.setGhost(+b.dataset.ghost); });
   new ResizeObserver(() => { if (View3D.active) { View3D.place(); View3D.impl.resize(); } }).observe(document.getElementById("mapWrap"));
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
-    if (e.key === "v" || e.key === "V") View3D.show(!View3D.active);
+    if (e.key === "v" || e.key === "V") { View3D.show(!View3D.active); return; }
+    if (!View3D.active || e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key, v = View3D.impl;
+    const act = { "+": "zin", "=": "zin", "-": "zout", q: "rl", Q: "rl", e: "rr", E: "rr", n: "north", N: "north",
+      t: "top", T: "top", b: "walls", B: "walls", f: "follow", F: "follow", h: "home", H: "home", "0": "home" }[k];
+    if (act) { View3D.nav(act); e.preventDefault(); return; }
+    const pan = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[k];
+    if (pan && v) { v.follow = false; v.pan(pan[0], pan[1]); syncNav(); e.preventDefault(); }
   });
   // http://SERVER:5000/#3d ouvre directement la vue 3D (la 2D reste la vue par défaut)
   if (location.hash === "#3d") View3D.show(true);

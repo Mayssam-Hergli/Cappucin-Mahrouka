@@ -47,3 +47,45 @@ body, button, input, select { font-family: var(--f-sys); font-variant-numeric: t
 .m3-btn:hover { border-color: var(--tx-3); }
 .m3-hint { position: absolute; left: .9rem; bottom: .7rem; z-index: 2; padding: .25rem .55rem; border-radius: 3px;
   background: var(--banner-bg); color: var(--tx-3); font: 500 .72rem/1.3 var(--f-sys); pointer-events: none; }
+
+/* ---------------------------------------------------------- commandes 3D */
+.m3-seg { display: inline-flex; align-items: center; height: 2rem; border: 1px solid var(--hair-2); border-radius: 4px;
+  overflow: hidden; background: var(--banner-bg); box-shadow: 0 2px 10px var(--shadow); }
+.m3-seg-lab { padding: 0 .6rem; color: var(--tx-3); font: 600 .7rem/1 var(--f-sys); letter-spacing: .06em; text-transform: uppercase; }
+.m3-seg button { height: 100%; padding: 0 .6rem; border: 0; border-left: 1px solid var(--hair-2); background: transparent;
+  color: var(--tx-2); font: 600 .78rem/1 var(--f-sys); cursor: pointer; }
+.m3-seg button[aria-pressed="true"] { background: var(--tx); color: var(--bg); }
+.m3-seg button:not([aria-pressed="true"]):hover { color: var(--tx); }
+.m3-nav { position: absolute; right: .9rem; top: .9rem; z-index: 2; display: flex; flex-direction: column; align-items: center;
+  gap: .25rem; padding: .35rem; border: 1px solid var(--hair-2); border-radius: 6px; background: var(--banner-bg);
+  box-shadow: 0 2px 12px var(--shadow); }
+.m3-nav button { display: grid; place-items: center; width: 2.1rem; height: 2.1rem; padding: 0; border: 1px solid transparent;
+  border-radius: 4px; background: transparent; color: var(--tx-2); cursor: pointer; }
+.m3-nav button:hover { color: var(--tx); border-color: var(--hair-2); }
+.m3-nav button[aria-pressed="true"] { color: var(--bg); background: var(--tx); }
+.m3-nav button .ic { width: 16px; height: 16px; }
+.m3-nav button:focus-visible, .m3-seg button:focus-visible { outline: 2px solid var(--tx); outline-offset: -2px; }
+.m3-nav .m3-compass { width: 2.5rem; height: 2.5rem; color: var(--tx); }
+.m3-nav .m3-compass svg { width: 100%; height: 100%; overflow: visible; }
+.m3-sep { width: 1.4rem; height: 1px; background: var(--hair-2); margin: .1rem 0; }
+
+/* ---------------------------------------------------------- délais critiques */
+.cd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
+.cd { display: grid; grid-template-columns: 5.2rem 1fr auto; align-items: center; gap: .6rem; padding: .35rem .5rem;
+  border-left: 3px solid var(--hair-2); background: var(--lift); border-radius: 0 3px 3px 0; font-size: .86rem; }
+.cd[role="button"] { cursor: pointer; }
+.cd[role="button"]:hover { background: var(--row-hi); }
+.cd[role="button"]:focus-visible { outline: 2px solid var(--tx); outline-offset: 1px; }
+.cd-tag { font: 700 .82rem/1 var(--f-sys); font-variant-numeric: tabular-nums; letter-spacing: .02em; white-space: nowrap; }
+.cd-txt { display: flex; align-items: center; gap: .45rem; min-width: 0; }
+.cd-pic { width: 1.05rem; height: 1.05rem; flex: none; }
+.cd-zone { color: var(--tx-3); font: 600 .74rem/1 var(--f-sys); letter-spacing: .04em; }
+.cd-now { border-left-color: var(--alarm); }
+.cd-now .cd-tag { color: var(--on-accent); background: var(--alarm-fill); padding: .2rem .35rem; border-radius: 2px; text-align: center; }
+.cd-red { border-left-color: var(--alarm); }
+.cd-red .cd-tag { color: var(--alarm-tx); }
+.cd-amber { border-left-color: var(--amber); }
+.cd-amber .cd-tag { color: var(--amber-tx); }
+.cd-grey .cd-tag { color: var(--tx-2); }
+.cd-empty { color: var(--tx-3); font-size: .84rem; }
+.sec[hidden] { display: none !important; }

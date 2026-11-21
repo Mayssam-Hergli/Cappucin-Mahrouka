@@ -205,18 +205,18 @@ class Sim:
 
             hello = "Bonjour, je suis le drone de la Protection Civile. Restez calme."
             if line["exit"] is None:
-                middle = "Restez où vous êtes, près du sol, couvrez votre bouche. Les secours viennent vous chercher."
+                middle = "Restez où vous êtes, près du sol, couvrez votre bouche. La Protection Civile vient vous chercher."
             else:
                 middle = f"La sortie la plus sûre est la sortie {line['exit']}, à {round(distance)} mètres"
                 if doors:
                     middle += ", en passant par la porte vers " + ", puis la porte vers ".join(doors)
-                middle += ". Restez près du sol. Les secours arrivent."
+                middle += ". Restez près du sol. La Protection Civile est en route."
             return {
                 "victim": victim_id,
                 "exit": line["exit"],
                 "distance_m": round(distance),
                 "doors": doors,
-                "say": f"{hello} {middle} Pouvez-vous marcher ?",
+                "say": f"{hello} {middle}",   # the drone only speaks, it does not ask anything
             }
 
     def set_drone_temp(self, temp):

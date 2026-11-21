@@ -35,7 +35,7 @@ When a factory burns, firefighters arrive without knowing what is inside, who is
 - **A false-alarm check.** The Protection Civile calls the factory, which confirms or cancels the alarm and says where the fire started.
 - **A live map.** While the team drives to the site, the factory map and a fire forecast load on the dashboard.
 - **A scout drone** flies in first. Its **thermal camera** and an **AI person detector** find trapped people through the smoke and place them on the map.
-- **The drone talks to victims** through a speaker: it gives them the nearest exit, tells them help is coming, and listens for their answer (*can walk* or *injured*).
+- **The drone talks to victims** through a speaker: it gives them the safest exit and tells them the Protection Civile is on its way. Every victim found is flagged *rescue first*.
 - **Heat safety.** At **60 °C** the drone flies to the nearest exit by itself.
 - **Three plans** once the scan is done:
   - **Evacuation**: the safest route out for each victim, with injured or silent victims flagged *rescue first*.
@@ -73,7 +73,7 @@ flowchart LR
 
     subgraph Drone, simulated on a laptop
         VIS[vision/<br/>webcam → person detection<br/>→ thermal look]
-        VOI[voice/<br/>text-to-speech + microphone]
+        VOI[voice/<br/>text-to-speech]
     end
 
     subgraph Server laptop
@@ -87,7 +87,7 @@ flowchart LR
     ESP -- "POST /api/sensor" --> SRV
     FP -- "POST /api/factory/confirm" --> SRV
     VIS -- "POST /api/vision" --> SRV
-    VOI -- "GET /api/voice/next<br/>POST /api/voice" --> SRV
+    VOI -- "GET /api/voice/next" --> SRV
     DASH -- "GET /api/state every 500 ms<br/>POST /api/drone/launch" --> SRV
 ```
 
@@ -99,7 +99,7 @@ flowchart LR
 | Server and phase machine | `server/` | Python, Flask | n/a (it is the hub) |
 | Simulation and plans | `sim/` | Python | imported directly by the server |
 | Vision | `vision/` | Python, OpenCV, YOLOv8 | `POST /api/vision` |
-| Voice | `voice/` | Python, pyttsx3, SpeechRecognition | `GET /api/voice/next`, `POST /api/voice` |
+| Voice | `voice/` | Python, pyttsx3 | `GET /api/voice/next` |
 | AI model | `ai/` | Python, Ultralytics (Colab) | offline: training and evaluation only |
 
 ## Repository layout
@@ -108,7 +108,7 @@ flowchart LR
 .
 ├── ai/        Thermal person detector: training notebook, weights, metrics, report
 ├── vision/    Fake-thermal webcam script (the drone's camera)
-├── voice/     Text-to-speech + microphone script (the drone's voice)
+├── voice/     Text-to-speech script (the drone's voice)
 ├── sim/       Factory map, fire / smoke / gas spread, virtual drone, A*, the three plans
 ├── server/    Flask server, Protection Civile dashboard, factory page, fake sensor
 ├── iot/       ESP32 sensor node firmware
@@ -125,7 +125,7 @@ Each folder has its own `README.md` with the details of that part.
 
 - Python 3.10 or newer
 - Arduino IDE (or PlatformIO) with ESP32 board support, if you use the hardware node
-- A webcam, a speaker and a microphone for the vision and voice parts
+- A webcam and a speaker for the vision and voice parts
 - Every device on the same network (a 2.4 GHz hotspot, because the ESP32 has no 5 GHz)
 
 ### Install
@@ -337,7 +337,7 @@ In the live demo, the laptop webcam stands in for the thermal camera. A pretrain
 | Fire, smoke, gas | Python simulation on the grid | The same model, refined with real fire data |
 | Scout drone | A virtual drone moving on the map | A small caged drone with a heat shield, thermal camera, speaker and mic |
 | Thermal camera | AI trained on real thermal images; live demo with a webcam made to look thermal | A real thermal camera on the drone |
-| Talking to victims | Laptop speaker and microphone | Speaker and mic on the drone |
+| Talking to victims | Laptop speaker (French text-to-speech) | Speaker on the drone (a mic to hear answers is a next step) |
 | Drone heat (60 °C) | Simulated drone temperature | A temperature sensor on the drone |
 | Three plans | Rules from firefighting practice, plus our simulator testing the options | The same, validated with Protection Civile officers |
 | Dashboard | A web page on a laptop | A tablet app for commanders and a page for factories |
@@ -352,7 +352,7 @@ In the live demo, the laptop webcam stands in for the thermal camera. A pretrain
 | Flame sensor (optional) | Detects a flame |
 | Buzzer + green / yellow / red LEDs | Local alarm on the node |
 | Laptop webcam | Stands in for the drone's thermal camera |
-| Laptop speaker + microphone | The drone's voice |
+| Laptop speaker | The drone's voice |
 
 The node decides `NORMAL` / `WARNING` / `ALARM` from thresholds **and the rate of rise**, so a warm hand does not cause a false alarm. If the WiFi drops, the local alarm keeps working.
 

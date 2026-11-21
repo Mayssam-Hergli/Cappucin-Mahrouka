@@ -58,6 +58,10 @@ class Hub:
             self.path = factory_path()
             with open(self.path, encoding="utf-8") as f:
                 self.factory = json.load(f)
+            # sim/factory.json a des noms anglais + "label_fr" / "name_fr" : le dashboard est en français
+            for z in self.factory.get("zones", []):
+                z["name"] = z.get("label_fr", z["name"])
+            self.factory["name"] = self.factory.get("name_fr", self.factory.get("name", ""))
             self.grid = Grid(self.factory)
             self.sim, self.sim_kind = make_sim(self.path)
             w = (self.factory.get("demo") or {}).get("wind")

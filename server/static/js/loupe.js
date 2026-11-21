@@ -4,6 +4,9 @@
 // top 3 des mesures (filtrées), mini-courbes, tendance, âge de la mesure, risques.
 "use strict";
 
+const READING_ICON = { temp: "thermo", co: "co", gas: "gas", smoke: "smoke", o2: "o2", mq: "sensor" };
+const LEVEL_FR = { DANGER: "Danger", WARNING: "Vigilance", NORMAL: "Normal" };
+
 const Loupe = {
   el: null, view: null, zone: null, items: new Map(),
 
@@ -47,10 +50,10 @@ const Loupe = {
     const z = (Live.s.zones || {})[this.zone];
     if (!z) return;
     const lvl = document.getElementById("loupeLvl");
-    lvl.textContent = z.level; lvl.className = "lvl " + z.level;
+    lvl.textContent = LEVEL_FR[z.level] || z.level; lvl.className = "lvl " + z.level;
     this.el.classList.toggle("warn", z.level !== "DANGER");
-    document.getElementById("loupeTitle").textContent = `${this.zone} · ${z.name}`;
-    document.getElementById("loupeScan").textContent = `scannée ${Math.round(z.scanned * 100)} %`;
+    document.getElementById("loupeTitle").textContent = `${this.zone} ${z.name}`;
+    document.getElementById("loupeScan").textContent = `Scannée à ${Math.round(z.scanned * 100)} %`;
 
     // top 3 mesures : la structure DOM change rarement, les chiffres défilent à chaque image
     const ul = document.getElementById("loupeReadings");
@@ -58,10 +61,10 @@ const Loupe = {
     if (keys.join() !== [...this.items.keys()].join()) {
       ul.innerHTML = "";
       this.items.clear();
-      if (!keys.length) ul.innerHTML = '<li class="muted" style="display:block;border:0">Aucune valeur anormale.</li>';
+      if (!keys.length) ul.innerHTML = '<li class="empty" style="display:block;border:0;background:none">Aucune valeur anormale.</li>';
       for (const r of z.top || []) {
         const li = U.el("li");
-        li.innerHTML = `<span class="ic">${r.icon}</span><span class="lab">${U.esc(r.label)}</span>
+        li.innerHTML = `${Icons.ui(READING_ICON[r.type] || "sensor")}<span class="lab">${U.esc(r.label)}</span>
           <span class="val"><b>--</b><small>${U.esc(r.unit)}</small></span>
           <span class="meta"></span><canvas width="140" height="40"></canvas>`;
         ul.appendChild(li);
@@ -73,15 +76,16 @@ const Loupe = {
       li.classList.toggle("hot", r.score >= 1);
       const v = Tween.get("loupe" + this.zone + r.type, r.value);
       li.querySelector(".val b").textContent = U.fmt(v);
-      const arrow = r.trend === "up" ? '<span class="trend-up">▲ en hausse</span>' :
-        r.trend === "down" ? '<span class="trend-down">▼ en baisse</span>' : "stable";
-      const src = r.src === "drone" ? "drone" : "capteur " + r.src;
+      const arrow = r.trend === "up" ? '<span class="trend-up">▲ En hausse</span>' :
+        r.trend === "down" ? '<span class="trend-down">▼ En baisse</span>' : "<span>Stable</span>";
+      const src = r.src === "drone" ? "Drone" : "Capteur " + r.src;
       const age = r.age + (Live.serverNow() - Live.s.server_time);
-      li.querySelector(".meta").innerHTML = `${arrow} · ${src} · ${U.ago(age)}`;
-      this._spark(li.querySelector("canvas"), r.hist || [], r.score >= 1 ? "#ff4d3d" : "#ff9f1c");
+      li.querySelector(".meta").innerHTML = `${arrow}<span>${src}</span><span>${U.ago(age)}</span>`;
+      const tk = Theme.read(["alarm", "amber"]);
+      this._spark(li.querySelector("canvas"), r.hist || [], r.score >= 1 ? tk.alarm : tk.amber);
     }
     const risks = document.getElementById("loupeRisks");
-    const html = (z.risks || []).map(r => `<li>${U.esc(r)}</li>`).join("") || '<li class="muted" style="background:none;border:0">Aucun risque identifié.</li>';
+    const html = (z.risks || []).map(r => `<li>${U.esc(stripEmoji(r))}</li>`).join("") || '<li class="none">Aucun risque identifié.</li>';
     if (risks.innerHTML !== html) risks.innerHTML = html;
   },
 

@@ -1,21 +1,24 @@
 // thermal.js — "caméra thermique" du drone.
-// Si le script webcam de Teammate 1 envoie des images (/api/vision), on les affiche.
+// Si le script webcam envoie des images (/api/vision), on les affiche.
 // Sinon on fabrique une vue thermique simulée à partir de la carte autour du drone
-// (feu = blanc/jaune, fumée chaude = violet, corps humain ~37 °C = orange), pour que
-// l'écran reste vivant même sans webcam.
+// (feu = blanc/jaune, fumée chaude = violet, corps humain ~37 °C = orange).
+// Le cadre du viseur (coins, réticule, REC, relevés) est en HTML par-dessus le canvas.
 "use strict";
 
 const Thermal = {
-  cv: null, ctx: null, img: null, tag: null, small: null,
-  // palette type "inferno"
-  stops: [[0, [0, 0, 4]], [.2, [40, 11, 84]], [.4, [120, 28, 109]], [.6, [200, 60, 77]],
-          [.8, [248, 140, 30]], [1, [252, 255, 164]]],
+  cv: null, ctx: null, img: null, tag: null, small: null, frameEl: null, pos: null, hudT: null,
+  // palette INFERNO, la même que la carte et la jauge
+  stops: [[0, [0, 0, 4]], [.2, [66, 10, 104]], [.42, [147, 38, 103]], [.62, [221, 81, 58]],
+          [.82, [252, 165, 10]], [1, [252, 255, 164]]],
 
   init() {
     this.cv = document.getElementById("thermal");
     this.ctx = this.cv.getContext("2d");
     this.img = document.getElementById("camImg");
     this.tag = document.getElementById("camTag");
+    this.frameEl = document.getElementById("cam");
+    this.pos = document.getElementById("camPos");
+    this.hudT = document.getElementById("camHudTemp");
     this.small = document.createElement("canvas");
     this.small.width = 40; this.small.height = 30;
     this.lut = [];
@@ -33,9 +36,27 @@ const Thermal = {
     return s[s.length - 1][1];
   },
 
+  _setTag(txt) { if (this.tag.textContent !== txt) this.tag.textContent = txt; },
+
+  // écran d'attente calme : dégradé du bas de la palette, deux lignes de texte
+  _idle(title, line) {
+    const g = this.ctx;
+    const gr = g.createLinearGradient(0, 0, 0, 150);
+    gr.addColorStop(0, "#07050c"); gr.addColorStop(1, "#1a0b26");
+    g.fillStyle = gr; g.fillRect(0, 0, 200, 150);
+    g.fillStyle = "rgba(255,255,255,.03)";
+    for (let y = 0; y < 150; y += 3) g.fillRect(0, y, 200, 1);
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillStyle = "#e8e6e1"; g.font = '600 14px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif';
+    g.fillText(title, 100, 68);
+    g.fillStyle = "#a3acb7"; g.font = '500 11px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif';
+    g.fillText(line, 100, 88);
+  },
+
   draw(now) {
     const s = Live.s;
     const cam = s && s.camera;
+    const d = s && s.drone;
     const fresh = cam && cam.jpg && (Live.serverNow() - cam.at) < 3;
     if (fresh) {
       if (this.img.dataset.at !== String(cam.at)) {
@@ -43,21 +64,24 @@ const Thermal = {
         this.img.dataset.at = String(cam.at);
       }
       this.img.style.display = "block";
-      this.tag.textContent = cam.person ? `PERSONNE DÉTECTÉE · ${Math.round((cam.conf || 0) * 100)} %` : "CAMÉRA DRONE · LIVE";
+      this.frameEl.classList.remove("nosig");
+      this._setTag(cam.person ? `Personne détectée, ${Math.round((cam.conf || 0) * 100)} %` : "Caméra du drone en direct");
+      this.hudT.textContent = d ? `${Math.round(d.temp)} °C` : "";
+      this.pos.textContent = d ? `X ${d.x}  Y ${d.y}` : "";
       return;
     }
     this.img.style.display = "none";
-    const d = s && s.drone;
-    const g = this.ctx;
     if (!d || d.state === "OUT") {
-      g.fillStyle = "#000"; g.fillRect(0, 0, 200, 150);
-      g.fillStyle = "#33404f"; g.font = "12px system-ui"; g.textAlign = "center";
-      g.fillText(d ? "Drone hors du bâtiment" : "Pas de signal", 100, 78);
-      this.tag.textContent = "CAMÉRA THERMIQUE · SIMULÉE";
+      this.frameEl.classList.add("nosig");
+      if (d) this._idle("Drone sorti du bâtiment", "Flux interrompu");
+      else this._idle("Drone au sol", "Le flux s'affiche au lancement");
+      this._setTag("Caméra thermique simulée");
       return;
     }
+    this.frameEl.classList.remove("nosig");
     // vue 10 m x 7,5 m centrée sur le drone, 4 pixels par mètre
     const t = now / 1000;
+    const g = this.ctx;
     const sm = this.small.getContext("2d");
     const id = sm.createImageData(40, 30);
     const fire = [...Live.fireNow].map(k => k.split(",").map(Number)).filter(([x, y]) => Math.abs(x - d.x) < 9 && Math.abs(y - d.y) < 8);
@@ -90,18 +114,16 @@ const Thermal = {
     sm.putImageData(id, 0, 0);
     g.imageSmoothingEnabled = true;
     g.drawImage(this.small, 0, 0, 200, 150);
-    // HUD
-    g.strokeStyle = "rgba(255,255,255,.7)"; g.lineWidth = 1;
-    g.beginPath(); g.moveTo(92, 75); g.lineTo(108, 75); g.moveTo(100, 67); g.lineTo(100, 83); g.stroke();
-    g.font = "bold 10px ui-monospace, monospace"; g.fillStyle = "#fff"; g.textAlign = "left";
-    g.fillText(`x${d.x} y${d.y}`, 6, 13);
-    g.textAlign = "right";
-    g.fillText(`${Math.round(d.temp)}°C`, 194, 13);
+    // cadres de détection autour des personnes
+    g.strokeStyle = "#e8e6e1"; g.lineWidth = 1.5;
+    g.font = '600 10px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif'; g.textAlign = "center"; g.fillStyle = "#e8e6e1";
     for (const v of victims) {
       const sx = 100 + (v.x - d.x) * 20, sy = 75 + (v.y - d.y) * 20;
-      g.strokeStyle = "#2ee87a"; g.lineWidth = 1.5; g.strokeRect(sx - 12, sy - 14, 24, 28);
-      g.fillStyle = "#2ee87a"; g.textAlign = "center"; g.fillText(v.id, sx, sy - 17);
+      g.strokeRect(sx - 12, sy - 14, 24, 28);
+      g.fillText(v.id, sx, sy - 18);
     }
-    this.tag.textContent = victims.length ? "PERSONNE DÉTECTÉE · SIMULÉE" : "CAMÉRA THERMIQUE · SIMULÉE";
+    this.hudT.textContent = `${Math.round(d.temp)} °C`;
+    this.pos.textContent = `X ${d.x}  Y ${d.y}`;
+    this._setTag(victims.length ? "Personne détectée (simulation)" : "Caméra thermique simulée");
   },
 };

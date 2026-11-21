@@ -1,5 +1,6 @@
 {
   "name": "Fictional factory, 40 x 25 m",
+  "name_fr": "Usine fictive, 40 x 25 m",
   "cell_size_m": 1,
   "legend": {
     "#": "wall",
@@ -39,10 +40,10 @@
     "##############E#########################"
   ],
   "zones": [
-    {"id": "Z1", "name": "Offices",                "name_fr": "les bureaux",                   "rect": [1, 1, 12, 8]},
-    {"id": "Z2", "name": "Paper and wood storage", "name_fr": "le stockage papier et bois",    "rect": [14, 1, 38, 8]},
-    {"id": "Z3", "name": "Production hall",        "name_fr": "l'atelier de production",       "rect": [1, 10, 26, 23]},
-    {"id": "Z4", "name": "Solvent and gas store",  "name_fr": "le stockage solvants et gaz",   "rect": [28, 10, 38, 23]}
+    {"id": "Z1", "name": "Offices",                "name_fr": "les bureaux",                   "label_fr": "Bureaux",                 "rect": [1, 1, 12, 8]},
+    {"id": "Z2", "name": "Paper and wood storage", "name_fr": "le stockage papier et bois",    "label_fr": "Stockage papier et bois", "rect": [14, 1, 38, 8]},
+    {"id": "Z3", "name": "Production hall",        "name_fr": "l'atelier de production",       "label_fr": "Atelier de production",   "rect": [1, 10, 26, 23]},
+    {"id": "Z4", "name": "Solvent and gas store",  "name_fr": "le stockage solvants et gaz",   "label_fr": "Stockage solvants et gaz", "rect": [28, 10, 38, 23]}
   ],
   "exits": [
     {"id": "E1", "x": 0,  "y": 4,  "side": "W", "name": "Sortie Ouest (bureaux)"},

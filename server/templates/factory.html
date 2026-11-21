@@ -4,17 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Usine — Levée de doute</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-  :root { --bg:#f4f6f9; --card:#fff; --text:#18202b; --muted:#5d6b7e; --red:#d92d20; --green:#12924f; --line:#dde3ea; }
+  :root { --bg:#f4f6f9; --card:#fff; --text:#18202b; --muted:#5d6b7e; --red:#c8373c; --green:#1e8f57; --line:#dde3ea; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, Roboto, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 "IBM Plex Sans", system-ui, -apple-system, Roboto, sans-serif; }
+  .ic { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex: none; }
+  header .ic { width: 26px; height: 26px; }
+  button .ic { margin-right: .35rem; }
+  h1, header b, button { font-family: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; }
+  :focus-visible { outline: 3px solid #18202b; outline-offset: 2px; }
+  .dot { display: inline-block; width: .6em; height: .6em; border-radius: 50%; margin-right: .35em; background: var(--green); }
+  .dot.WARNING { background: #e0a526; } .dot.ALARM { background: var(--red); }
   header { padding: 14px 16px; background: #18202b; color: #fff; display: flex; gap: 10px; align-items: center; }
   header small { color: #a9b6c7; display: block; }
   main { max-width: 560px; margin: 0 auto; padding: 16px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
   .call { border: 2px solid var(--red); animation: ring 1s infinite; }
   @keyframes ring { 50% { box-shadow: 0 0 0 6px rgba(217,45,32,.18); } }
-  h1 { font-size: 20px; margin: 0 0 6px; }
+  h1 { font-size: 22px; margin: 0 0 6px; display: flex; align-items: center; gap: .45rem; }
   p { margin: 6px 0; color: var(--muted); }
   .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
   button { font: inherit; font-weight: 700; padding: 16px 10px; border-radius: 12px; border: 0; cursor: pointer; }
@@ -29,7 +39,7 @@
 </style>
 </head>
 <body>
-<header><span style="font-size:24px">🏭</span><div><b id="fname">Usine</b><small>Poste de sécurité (HSE)</small></div></header>
+<header><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 20.5V10l5 3V10l5 3V5h4l.5 15.5z"/><path d="M3 20.5h18"/></svg><div><b id="fname">Usine</b><small>Poste de sécurité (HSE)</small></div></header>
 <main id="app"><div class="card"><p>Connexion…</p></div></main>
 <script>
 "use strict";
@@ -52,30 +62,30 @@ async function poll() {
 function render(s) {
   if (s.phase !== lastPhase) { if (!["ALERT", "CHECKING"].includes(s.phase)) { step = "idle"; origin = null; } lastPhase = s.phase; }
   else if (step !== "idle" && ["ALERT", "CHECKING"].includes(s.phase)) return;   // ne pas effacer pendant le clic
-  const sensors = (s.sensors || []).map(x => `<span>${x.level === "ALARM" ? "🔴" : x.level === "WARNING" ? "🟡" : "🟢"} ${x.id} · ${x.zone}</span>`).join("");
+  const sensors = (s.sensors || []).map(x => `<span><i class="dot ${x.level}"></i>${x.id}, zone ${x.zone}</span>`).join("");
   if (s.phase === "ALERT" || s.phase === "CHECKING") {
     const a = s.alarm || {};
     const zone = (F.zones || []).find(z => z.id === a.zone);
-    app.innerHTML = `<div class="card call"><h1>📞 La Protection Civile vous appelle</h1>
-      <p>Alarme reçue : <b>zone ${a.zone || "?"}${zone ? " · " + zone.name : ""}</b> (${a.cause || "?"}, capteur ${a.node || "?"}).</p>
+    app.innerHTML = `<div class="card call"><h1><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3.5l3 3.4-1.8 2.4c1.1 2.3 3.2 4.4 5.5 5.5l2.4-1.8 3.4 3-1.6 3.2C11.5 19.5 4.5 12.5 3.8 6.1z"/></svg>La Protection Civile vous appelle</h1>
+      <p>Alarme reçue : <b>zone ${a.zone || "?"}${zone ? ", " + zone.name : ""}</b> (${a.cause || "?"}, capteur ${a.node || "?"}).</p>
       <p>Allez vérifier ou regardez vos caméras. <b>Est-ce un vrai incendie ?</b></p>
-      <div class="btns"><button class="real" id="bReal">🔥 Vrai feu</button><button class="false" id="bFalse">Fausse alarme</button></div></div>`;
+      <div class="btns"><button class="real" id="bReal"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.5 3.1 4.6 4.6 4.6 9.3a4.6 4.6 0 0 1-9.2 0c0-2.3 1.2-3.6 2.3-4.6.2 1.7 1 2.5 1.9 2.7C10.8 7.8 11.4 5.1 12 3z"/></svg>Vrai feu</button><button class="false" id="bFalse">Fausse alarme</button></div></div>`;
     document.getElementById("bReal").onclick = () => { step = "origin"; askOrigin(a); };
     document.getElementById("bFalse").onclick = async () => { await post("/api/factory/confirm", { real: false }); step = "idle"; };
     return;
   }
   const msg = {
-    NORMAL: ["✅ Aucune alerte", "Vos capteurs surveillent l'usine. En cas d'alarme, la Protection Civile vous contacte ici."],
-    FALSE_ALARM: ["✔ Fausse alarme enregistrée", "Merci. L'intervention est annulée."],
-    CONFIRMED: ["🚒 Secours en route", "Évacuez le personnel par les sorties les plus proches. Ne retournez pas à l'intérieur."],
-    EN_ROUTE: ["🚒 Secours en route", "Évacuez le personnel par les sorties les plus proches. Ne retournez pas à l'intérieur."],
-    DRONE_INSIDE: ["🚁 Drone de reconnaissance dans le bâtiment", "Rassemblez le personnel au point de rassemblement et comptez les absents."],
-    PLANS_READY: ["🧯 Intervention en cours", "Restez à la disposition du commandant des secours."],
+    NORMAL: ["Aucune alerte", "Vos capteurs surveillent l'usine. En cas d'alarme, la Protection Civile vous contacte ici."],
+    FALSE_ALARM: ["Fausse alarme enregistrée", "Merci. L'intervention est annulée."],
+    CONFIRMED: ["Secours en route", "Évacuez le personnel par les sorties les plus proches. Ne retournez pas à l'intérieur."],
+    EN_ROUTE: ["Secours en route", "Évacuez le personnel par les sorties les plus proches. Ne retournez pas à l'intérieur."],
+    DRONE_INSIDE: ["Drone de reconnaissance dans le bâtiment", "Rassemblez le personnel au point de rassemblement et comptez les absents."],
+    PLANS_READY: ["Intervention en cours", "Restez à la disposition du commandant des secours."],
   }[s.phase] || ["", ""];
   app.innerHTML = `<div class="card"><h1>${msg[0]}</h1><p>${msg[1]}</p><div class="sensors">${sensors}</div></div>`;
 }
 function askOrigin(a) {
-  app.innerHTML = `<div class="card call"><h1>🔥 Où le feu a-t-il démarré ?</h1>
+  app.innerHTML = `<div class="card call"><h1><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.5 3.1 4.6 4.6 4.6 9.3a4.6 4.6 0 0 1-9.2 0c0-2.3 1.2-3.6 2.3-4.6.2 1.7 1 2.5 1.9 2.7C10.8 7.8 11.4 5.1 12 3z"/></svg>Où le feu a-t-il démarré ?</h1>
     <p class="hint">Touchez l'endroit sur le plan.</p><canvas id="cv"></canvas>
     <p id="pick" class="muted">Aucun point choisi : on utilisera la position du capteur ${a.node || ""}.</p>
     <button class="ok" id="bOk">Confirmer l'incendie</button></div>`;
@@ -86,10 +96,10 @@ function askOrigin(a) {
   const col = { "#": "#3a4354", ".": "#f8fafc", D: "#c9954a", E: "#12924f", P: "#e6cfa8", F: "#d6c2ea", G: "#efe39a", X: "#a8d8ea" };
   const draw = () => {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { g.fillStyle = col[F.grid[y][x]] || "#fff"; g.fillRect(x * P, y * P, P, P); }
-    g.fillStyle = "#5d6b7e"; g.font = "bold 11px system-ui";
+    g.fillStyle = "#5d6b7e"; g.font = '700 11px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif';
     for (const z of F.zones || []) g.fillText(z.name, z.rect[0] * P + 4, z.rect[1] * P + 13);
     if (origin) { g.fillStyle = "#d92d20"; g.beginPath(); g.arc(origin[0] * P + P / 2, origin[1] * P + P / 2, P * .8, 0, 7); g.fill();
-      g.fillStyle = "#fff"; g.font = "14px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("🔥", origin[0] * P + P / 2, origin[1] * P + P / 2); g.textAlign = "left"; g.textBaseline = "alphabetic"; }
+      g.strokeStyle = "#fff"; g.lineWidth = 2; g.beginPath(); g.moveTo(origin[0] * P + 3, origin[1] * P + P / 2); g.lineTo(origin[0] * P + P - 3, origin[1] * P + P / 2); g.moveTo(origin[0] * P + P / 2, origin[1] * P + 3); g.lineTo(origin[0] * P + P / 2, origin[1] * P + P - 3); g.stroke(); }
   };
   draw();
   cv.onclick = (ev) => {
@@ -98,7 +108,7 @@ function askOrigin(a) {
     if (F.grid[y][x] === "#") return;
     origin = [x, y];
     const z = (F.zones || []).find(z => x >= z.rect[0] && x <= z.rect[2] && y >= z.rect[1] && y <= z.rect[3]);
-    document.getElementById("pick").textContent = `Départ du feu : ${z ? z.name : ""} (x=${x}, y=${y})`;
+    document.getElementById("pick").textContent = `Départ du feu : ${z ? z.name : ""} (x ${x}, y ${y})`;
     draw();
   };
   document.getElementById("bOk").onclick = async () => {

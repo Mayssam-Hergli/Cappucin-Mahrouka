@@ -4,112 +4,135 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Protection Civile — Poste de commandement</title>
+<script src="/static/js/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
+<script src="/static/js/icons.js"></script>
+
 <header class="topbar">
-  <div class="brand"><span class="logo">🛡</span><div><b>Protection Civile</b><small>Poste de commandement · Drone éclaireur</small></div></div>
-  <ol class="stepper" id="stepper"></ol>
+  <div class="brand">
+    <svg class="brand-mark" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <b>Protection Civile</b>
+  </div>
+  <ol class="timeline" id="stepper" aria-label="Phases de l'intervention"></ol>
   <div class="top-right">
-    <div class="chrono" id="chrono" title="Temps depuis l'alarme">--:--</div>
-    <div class="live" id="live"><span class="dot"></span><span class="txt">LIVE</span></div>
+    <div class="clock-box">
+      <small>Depuis l'alarme</small>
+      <div class="chrono" id="chrono" title="Temps depuis l'alarme">--:--</div>
+    </div>
+    <div class="link-wrap">
+      <button class="live" id="live" type="button" aria-describedby="health"><span class="dot"></span><span class="txt">Liaison</span></button>
+      <div class="health" id="health" role="tooltip"></div>
+    </div>
+    <button class="iconbtn" id="themeBtn" type="button" aria-pressed="false" aria-label="Thème clair" title="Thème clair">
+      <svg class="ic ic-sun" aria-hidden="true"><use href="#i-sun"></use></svg>
+      <svg class="ic ic-moon" aria-hidden="true"><use href="#i-moon"></use></svg>
+    </button>
   </div>
 </header>
 
 <main class="layout">
-  <section class="map-wrap" id="mapWrap">
-    <div class="banner" id="banner"></div>
+  <section class="map-wrap" id="mapWrap" aria-label="Plan d'intervention">
+    <div class="banner" id="banner" role="status"></div>
     <canvas id="map"></canvas>
     <div class="tooltip" id="tooltip"></div>
 
     <div class="loupe" id="loupe" aria-hidden="true">
       <div class="loupe-head">
-        <span class="lvl" id="loupeLvl">DANGER</span>
+        <span class="lvl" id="loupeLvl">Danger</span>
         <b id="loupeTitle">Zone</b>
         <span class="loupe-scan" id="loupeScan"></span>
-        <button class="x" id="loupeClose" title="Fermer">✕</button>
+        <button class="x" id="loupeClose" title="Fermer la vue détaillée" aria-label="Fermer"><svg class="ic" aria-hidden="true"><use href="#i-close"></use></svg></button>
       </div>
       <div class="loupe-body">
         <canvas id="loupeMap"></canvas>
         <div class="loupe-side">
-          <div class="loupe-sub">Mesures importantes</div>
+          <div class="sub">Mesures importantes</div>
           <ul class="readings" id="loupeReadings"></ul>
-          <div class="loupe-sub">Risques</div>
+          <div class="sub">Risques</div>
           <ul class="risks" id="loupeRisks"></ul>
         </div>
       </div>
     </div>
 
     <div class="map-bar">
-      <div class="layers" id="layers">
-        <label><input type="checkbox" data-l="fire" checked> 🔥 Feu</label>
-        <label><input type="checkbox" data-l="smoke" checked> 💨 Fumée</label>
-        <label><input type="checkbox" data-l="gas" checked> 🧪 Gaz</label>
-        <label><input type="checkbox" data-l="paths" checked> ➜ Plans</label>
-        <label><input type="checkbox" data-l="fog" checked> 🌫 Brouillard</label>
+      <div class="layers" id="layers" role="group" aria-label="Calques de la carte">
+        <label title="Feu"><input type="checkbox" data-l="fire" checked aria-label="Feu"><svg class="ic" aria-hidden="true"><use href="#i-fire"></use></svg></label>
+        <label title="Fumée"><input type="checkbox" data-l="smoke" checked aria-label="Fumée"><svg class="ic" aria-hidden="true"><use href="#i-smoke"></use></svg></label>
+        <label title="Gaz"><input type="checkbox" data-l="gas" checked aria-label="Gaz"><svg class="ic" aria-hidden="true"><use href="#i-gas"></use></svg></label>
+        <label title="Plans : évacuation, entrée, attaque"><input type="checkbox" data-l="paths" checked aria-label="Plans"><svg class="ic" aria-hidden="true"><use href="#i-route"></use></svg></label>
+        <label title="Zones pas encore vues par le drone"><input type="checkbox" data-l="fog" checked aria-label="Zones non vues"><svg class="ic" aria-hidden="true"><use href="#i-fog"></use></svg></label>
       </div>
       <div class="wind">
-        <span>Vent</span>
-        <input type="range" id="windKmh" min="0" max="40" step="1" value="10">
+        <span class="lab">Vent</span>
+        <input type="range" id="windKmh" min="0" max="40" step="1" value="10" aria-label="Vitesse du vent">
         <b id="windKmhTxt">10 km/h</b>
-        <button id="windDir" title="Changer la direction">➜</button>
+        <button id="windDir" type="button" title="Changer la direction du vent" aria-label="Changer la direction du vent"><svg class="ic" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
       </div>
-      <div class="legend">
-        <i style="--c:var(--fire)"></i>feu <i style="--c:#8b97a8"></i>fumée <i style="--c:var(--gas)"></i>gaz
-        <i style="--c:var(--blue)"></i>drone <i style="--c:var(--green)"></i>évacuation <i style="--c:var(--cyan)"></i>entrée
-      </div>
+      <button class="iconbtn demo-btn" id="demoBtn" type="button" aria-expanded="false" aria-controls="demo" title="Panneau démo (touche D)" aria-label="Panneau démo"><svg class="ic" aria-hidden="true"><use href="#i-sliders"></use></svg></button>
     </div>
   </section>
 
   <aside class="side">
-    <div class="card" id="cardAction"></div>
+    <section class="decisions" id="cardAction" aria-label="Décisions">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-check"></use></svg>Décisions</h3>
+      <div class="act" id="actNow" aria-live="polite"></div>
+      <ol class="track" id="decisions"></ol>
+    </section>
 
-    <div class="card" id="cardDrone">
-      <h3>🚁 Drone éclaireur <span class="chip" id="droneState">AU SOL</span></h3>
-      <div class="drone-row">
-        <div class="cam">
-          <canvas id="thermal" width="200" height="150"></canvas>
-          <img id="camImg" alt="caméra drone">
-          <span class="cam-tag" id="camTag">CAMÉRA THERMIQUE · SIMULÉE</span>
-        </div>
-        <div class="gauge">
-          <div class="gauge-val"><b id="droneTemp">--</b><small>°C</small></div>
-          <div class="gauge-bar"><div id="droneBar"></div><span class="lim" title="60 °C : retour auto"></span></div>
-          <small class="muted">retour auto à 60 °C</small>
-          <div class="mini" id="droneMini">exploré 0 %</div>
-        </div>
+    <section class="sec" id="cardDrone">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-drone"></use></svg>Drone éclaireur</h3>
+      <div class="cam" id="cam">
+        <canvas id="thermal" width="200" height="150"></canvas>
+        <img id="camImg" alt="Image de la caméra du drone">
+        <span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br br-"></span>
+        <span class="cross"></span>
+        <span class="rec"><i></i>REC</span>
+        <span class="hud-pos" id="camPos"></span>
+        <span class="hud-temp" id="camHudTemp"></span>
+        <span class="cam-tag" id="camTag">Caméra thermique simulée</span>
       </div>
-    </div>
+      <div class="gauge">
+        <b class="gauge-val"><span id="droneTemp">--</span> °C</b>
+        <div class="gauge-bar" aria-hidden="true"><div id="droneBar"></div><span class="lim"></span><span class="lim-lab">60</span></div>
+        <span class="state" id="droneState">Au sol</span>
+      </div>
+    </section>
 
-    <div class="card" id="cardVictims">
-      <h3>👤 Victimes <span class="chip" id="victimCount">0</span></h3>
-      <ul class="victims" id="victims"><li class="muted">Aucune victime détectée pour l'instant.</li></ul>
-    </div>
+    <section class="sec" id="cardVictims">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-person"></use></svg>Victimes <span class="meta count" id="victimCount">0</span></h3>
+      <ul class="victims" id="victims"><li class="empty">Aucune victime détectée pour l'instant.</li></ul>
+    </section>
 
-    <div class="card" id="cardPlans">
-      <h3>📋 Plans recommandés <small class="muted">L'IA recommande, le commandant décide</small></h3>
-      <div id="plans"><p class="muted">Les plans apparaissent quand le drone a trouvé des victimes.</p></div>
-    </div>
+    <section class="sec" id="cardPlans">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-plan"></use></svg>Plans recommandés <span class="meta">L'IA recommande, le commandant décide.</span></h3>
+      <div id="plans"><p class="empty">Les plans apparaissent quand le drone a trouvé des victimes.</p></div>
+    </section>
 
-    <div class="card grow">
-      <h3>📜 Journal</h3>
+    <section class="sec grow">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-journal"></use></svg>Journal</h3>
       <ul class="log" id="log"></ul>
-    </div>
+    </section>
 
-    <div class="health" id="health"></div>
+    <section class="demo" id="demo" hidden aria-label="Panneau démo">
+      <div class="demo-head"><b>Panneau démo</b><small>touche D</small></div>
+      <div class="demo-row">
+        <button data-demo="skip">Étape suivante</button>
+        <button data-demo="alarm">Alarme simulée</button>
+        <button data-demo="heat">Drone +12 °C</button>
+        <button data-demo="victim">Personne ici</button>
+      </div>
+      <div class="demo-row">
+        <span class="speed">Vitesse <button data-speed="1">×1</button><button data-speed="2">×2</button><button data-speed="4">×4</button></span>
+        <button data-demo="reset" class="danger">Réinitialiser</button>
+      </div>
+    </section>
   </aside>
 </main>
-
-<div class="demo" id="demo" hidden>
-  <b>Panneau démo</b> <small>(touche D)</small>
-  <button data-demo="skip">⏭ Étape suivante</button>
-  <button data-demo="alarm">🚨 Alarme simulée</button>
-  <button data-demo="heat">🌡 +12 °C drone</button>
-  <button data-demo="victim">👤 Personne ici</button>
-  <span>Vitesse
-    <button data-speed="1">×1</button><button data-speed="2">×2</button><button data-speed="4">×4</button></span>
-  <button data-demo="reset" class="danger">↺ Reset</button>
-</div>
 
 <script src="/static/js/live.js"></script>
 <script src="/static/js/map.js"></script>

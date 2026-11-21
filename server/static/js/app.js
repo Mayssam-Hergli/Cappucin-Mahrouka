@@ -41,11 +41,29 @@ let MainMap = null;
     if (z) Loupe.open(z.id);
   });
 
-  // panneau démo (touche D)
+  // thème clair / sombre (bouton soleil/lune, mémorisé)
+  const themeBtn = document.getElementById("themeBtn");
+  const syncTheme = () => {
+    const light = Theme.mode === "light";
+    themeBtn.setAttribute("aria-pressed", String(light));
+    themeBtn.title = light ? "Thème sombre" : "Thème clair";
+    themeBtn.setAttribute("aria-label", "Thème clair");
+  };
+  themeBtn.onclick = () => Theme.toggle();
+  Theme.on(syncTheme); syncTheme();
+
+  // panneau démo : caché par défaut, touche D ou petit bouton ; il s'ouvre dans la colonne de droite
   const demo = document.getElementById("demo");
+  const demoBtn = document.getElementById("demoBtn");
+  const toggleDemo = () => {
+    demo.hidden = !demo.hidden;
+    demoBtn.setAttribute("aria-expanded", String(!demo.hidden));
+    if (!demo.hidden) demo.scrollIntoView({ block: "nearest" });
+  };
+  demoBtn.onclick = toggleDemo;
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
-    if (e.key === "d" || e.key === "D") demo.hidden = !demo.hidden;
+    if (e.key === "d" || e.key === "D") toggleDemo();
     if (e.key === "Escape") Loupe.close();
   });
   demo.querySelectorAll("[data-demo]").forEach(b => b.onclick = () => {
@@ -74,23 +92,23 @@ function describeCell(x, y) {
   const ch = (f.grid[y] || "")[x];
   const z = MainMap.zoneAt(x, y);
   const k = x + "," + y;
-  const parts = [`<b>${z ? U.esc(z.id + " · " + z.name) : "Hors zone"}</b>`];
-  parts.push(`<span class="muted">${(MAT[ch] || {}).name || ""} · x=${x} y=${y}</span>`);
+  const parts = [`<b>${z ? U.esc(z.id + " " + z.name) : "Hors zone"}</b>`];
+  parts.push(`<span class="muted">${(MAT[ch] || {}).name || ""}, x ${x} y ${y}</span>`);
   const eq = (f.equipment || []).find(e => e.x === x && e.y === y);
-  if (eq) parts.push(`${EQUIP_ICON[eq.type] || ""} ${U.esc(eq.label)}`);
+  if (eq) parts.push(`${Icons.picto(eq.type)} ${U.esc(eq.label)}`);
   const ex = (f.exits || []).find(e => e.x === x && e.y === y);
-  if (ex) parts.push(`🚪 ${ex.id} ${U.esc(ex.name || "")}${s.phase === "EN_ROUTE" ? " · cliquer pour y faire entrer le drone" : ""}`);
+  if (ex) parts.push(`${Icons.picto("exit")} ${ex.id}, ${U.esc(ex.name || "")}${s.phase === "EN_ROUTE" ? ". Cliquer pour y faire entrer le drone" : ""}`);
   const se = (s.sensors || []).find(e => e.x === x && e.y === y);
-  if (se) parts.push(`📡 Capteur ${se.id} (${se.src === "real" ? "ESP32 réel" : "simulé"}) : ${se.level} · ${se.temp} °C · gaz ${se.gas}`);
+  if (se) parts.push(`Capteur ${se.id} (${se.src === "real" ? "ESP32 réel" : "simulé"}) : ${({ NORMAL: "normal", WARNING: "pré-alerte", ALARM: "alarme" })[se.level] || se.level}, ${se.temp} °C, gaz ${se.gas}`);
   const known = !Live.fogOn() || Live.revealAt.has(k);
-  if (Live.fogOn() && !known) parts.push(`<span class="muted">🌫 Pas encore vu par le drone</span>`);
+  if (Live.fogOn() && !known) parts.push(`<span class="muted">Pas encore vu par le drone</span>`);
   if (known) {
-    if (Live.fireNow.has(k)) parts.push("🔥 En feu");
-    else if (Live.burnt.has(k)) parts.push("⬛ Brûlé");
-    if (Live.smokeNow.has(k)) parts.push("💨 Fumée");
-    if (Live.gasNow.has(k)) parts.push("🧪 Gaz");
+    if (Live.fireNow.has(k)) parts.push('<span class="warn">En feu</span>');
+    else if (Live.burnt.has(k)) parts.push("Brûlé");
+    if (Live.smokeNow.has(k)) parts.push("Fumée");
+    if (Live.gasNow.has(k)) parts.push("Gaz");
   }
   const zs = z && s.zones && s.zones[z.id];
-  if (zs && zs.level !== "NORMAL") parts.push(`<span style="color:var(--red)">Zone ${zs.level} · cliquer pour la loupe</span>`);
+  if (zs && zs.level !== "NORMAL") parts.push(`<span class="warn">Zone ${zs.level === "DANGER" ? "en danger" : "en vigilance"}. Cliquer pour la vue détaillée</span>`);
   return parts.join("<br>");
 }

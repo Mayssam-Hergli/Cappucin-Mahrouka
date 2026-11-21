@@ -1,23 +1,43 @@
-// map.js — rendu de la carte live (canvas).
-//  * calque statique (murs, portes, stocks, équipements) dessiné UNE fois hors écran ;
-//  * calque dynamique redessiné à 60 images/s : brouillard, feu qui scintille, fumée qui
-//    ondule, gaz, traînée du drone, anneau de scan, drone interpolé, alertes de zone, plans.
-//  * la même classe sert à la vue globale et à la loupe (mode "detail" + caméra animée).
+// map.js — la carte, dessinée comme un plan d'intervention de sapeurs-pompiers.
+//  * calque statique (une fois, hors écran) : murs pleins, portes avec leur débattement,
+//    matières hachurées par zone, pictogrammes de sécurité, noms de zones et surfaces ;
+//  * calque dynamique (60 images/s) : feu en palette thermique INFERNO, fumée, gaz hachuré,
+//    zones non vues, prévision, trajectoire du drone, plans, victimes, drone, échelle, vent.
+//  * la même classe sert à la vue globale et à la vue détaillée d'une zone (mode "detail").
+// Toutes les couleurs viennent des propriétés CSS du thème (Theme.read) : la carte se
+// redessine quand on passe du thème sombre au thème clair.
+// Le mouvement est réservé à ce qui a un sens : drone, découverte de la carte, nouvelle
+// victime (une impulsion), passage d'une zone en alerte (une onde).
 "use strict";
 
 const CELL_PX = 32;   // résolution du calque statique
+const FONT_COND = '"IBM Plex Sans Condensed", "Arial Narrow", "Roboto Condensed", sans-serif';
 const MAT = {
-  "#": { c: "#3a4354", name: "Mur" },
-  ".": { c: "#141a24", name: "Sol" },
-  "D": { c: "#7a5a2e", name: "Porte intérieure" },
-  "E": { c: "#1d9a55", name: "Sortie" },
-  "P": { c: "#5c4528", name: "Stock papier / bois (classe A)" },
-  "F": { c: "#4a2c63", name: "Solvants / carburant (classe B)" },
-  "G": { c: "#5e5a1a", name: "Bouteilles de gaz (classe C)" },
-  "X": { c: "#18485e", name: "Armoire électrique" },
+  "#": { name: "Mur" },
+  ".": { name: "Sol" },
+  "D": { name: "Porte intérieure" },
+  "E": { name: "Sortie" },
+  "P": { name: "Stock papier et bois, classe A" },
+  "F": { name: "Solvants et carburant, classe B" },
+  "G": { name: "Bouteilles de gaz, classe C" },
+  "X": { name: "Armoire électrique" },
 };
-const EQUIP_ICON = { metal: "⚙", electric: "⚡", gas: "🧪", valve: "🔧", solvent: "🛢", extinguisher: "🧯" };
-const STATUS_COLOR = { walking: "#2ecc71", injured: "#ff4d3d", no_answer: "#ff9f1c" };
+const MATERIAL_KIND = { P: "diag", F: "cross", G: "cyl", X: "zig" };
+const MAP_TOKENS = [
+  "map-bg", "map-floor", "map-grid", "map-wall", "map-door", "map-door-arc", "map-label", "map-label-2",
+  "map-island", "map-exit-label", "mat-p-base", "mat-p-ink", "mat-f-base", "mat-f-ink", "mat-g-base", "mat-g-ink",
+  "mat-x-base", "mat-x-ink", "map-burnt", "map-smoke", "map-fog", "map-fog-ink", "map-gas", "map-halo",
+  "map-ink", "map-ink-2", "map-tag-bg", "map-tag-tx", "chip-warn-bg", "chip-warn-tx",
+  "alarm", "alarm-fill", "amber", "evac", "entry", "attack", "on-accent",
+  "inferno-0", "inferno-1", "inferno-2", "inferno-3", "inferno-4", "inferno-5",
+];
+const SIDE_VEC = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
+const WIND_TO = ["le nord", "le nord-est", "l'est", "le sud-est", "le sud", "le sud-ouest", "l'ouest", "le nord-ouest"];
+
+function hexRgb(c) {
+  const m = String(c).trim().match(/^#([0-9a-f]{6})/i);
+  return m ? [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16)) : [0, 0, 0];
+}
 
 class MapView {
   constructor(canvas, factory, opts = {}) {
@@ -35,16 +55,43 @@ class MapView {
     this.drone = null;           // position lissée
     this.droneHeading = 0;
     this.zoneById = Object.fromEntries((factory.zones || []).map(z => [z.id, z]));
-    this._buildStatic();
-    this._fogPattern = this._makeHatch();
+    this._victimSeen = new Map();   // id -> instant d'apparition (impulsion unique)
+    this._zoneLvl = new Map();      // id -> { level, at } (onde unique au passage en alerte)
+    this._applyTheme();
     this.resize();
     new ResizeObserver(() => this.resize()).observe(canvas);
+    // les polices et les pictogrammes arrivent après : on redessine le calque statique une fois prêts
+    Promise.all([Icons.ready, document.fonts ? document.fonts.ready : null]).then(() => this._buildStatic());
+    Theme.on(() => this._applyTheme());
+  }
+
+  // couleurs du thème courant (propriétés CSS) + tout ce qui en dépend
+  _applyTheme() {
+    const T = this.T = Theme.read(MAP_TOKENS);
+    const stops = [0, .2, .42, .62, .82, 1];
+    this.inferno = stops.map((p, i) => [p, hexRgb(T["inferno-" + i])]);
+    this.light = Theme.mode === "light";
+    this._fogPattern = this._makeHatch(T["map-fog-ink"], 9);
+    this._gasPattern = this._makeHatch(withAlpha(T["map-gas"], .8), 6);
+    this._buildStatic();
+  }
+
+  infernoAt(v) {
+    v = U.clamp(v, 0, 1);
+    const P = this.inferno;
+    for (let i = 1; i < P.length; i++) {
+      if (v <= P[i][0]) {
+        const [a, ca] = P[i - 1], [b, cb] = P[i];
+        const k = (v - a) / (b - a);
+        return ca.map((c, j) => Math.round(c + (cb[j] - c) * k));
+      }
+    }
+    return P[P.length - 1][1];
   }
 
   // ------------------------------------------------------------ géométrie
   resize() {
     const dpr = window.devicePixelRatio || 1;
-    // clientWidth ignore les transform CSS (la loupe s'ouvre avec un scale animé)
     this.cssW = Math.max(50, this.cv.clientWidth); this.cssH = Math.max(50, this.cv.clientHeight);
     this.cv.width = Math.round(this.cssW * dpr);
     this.cv.height = Math.round(this.cssH * dpr);
@@ -52,9 +99,11 @@ class MapView {
   }
   _view() {
     const c = this.cam;
-    const s = Math.min(this.cssW / c.w, this.cssH / c.h);
-    const ox = (this.cssW - c.w * s) / 2 - c.x * s;
-    const oy = (this.cssH - c.h * s) / 2 - c.y * s;
+    // marges autour du bâtiment (en mètres) : à droite la rose des vents, en bas l'échelle
+    const [pl, pr, pt, pb] = this.detail ? [0, 0, 0, 0] : [0.8, 3.6, 0.8, 1.4];
+    const s = Math.min(this.cssW / (c.w + pl + pr), this.cssH / (c.h + pt + pb));
+    const ox = (this.cssW - (c.w + pl + pr) * s) / 2 + pl * s - c.x * s;
+    const oy = (this.cssH - (c.h + pt + pb) * s) / 2 + pt * s - c.y * s;
     return { s, ox, oy };
   }
   toCell(px, py) {
@@ -72,12 +121,11 @@ class MapView {
     const [x0, y0, x1, y1] = z.rect;
     const pad = 1.5;
     let w = x1 - x0 + 1 + 2 * pad, h = y1 - y0 + 1 + 2 * pad;
-    // garder le format du canvas (4:3) pour éviter les bandes vides
     const ar = this.cssW / this.cssH;
     if (w / h < ar) w = h * ar; else h = w / ar;
     const cx = (x0 + x1 + 1) / 2, cy = (y0 + y1 + 1) / 2;
     this.camTarget = { x: cx - w / 2, y: cy - h / 2, w, h };
-    if (instant) this.cam = { ...this.camTarget };
+    if (instant || REDUCED_MOTION) this.cam = { ...this.camTarget };
   }
   cell(x, y) { return (this.f.grid[y] || "")[x] || "#"; }
   zoneAt(x, y) {
@@ -87,60 +135,126 @@ class MapView {
     }
     return null;
   }
+  nearestExit(x, y, maxD = 2.5) {
+    let best = null;
+    for (const e of this.f.exits || []) {
+      const d = Math.hypot(e.x - x, e.y - y);
+      if (d <= maxD && (!best || d < best.d)) best = { e, d };
+    }
+    return best && best.e;
+  }
 
   // -------------------------------------------------------- calque statique
-  _buildStatic() {
+  _pattern(g, kind, ink) {
     const c = document.createElement("canvas");
-    c.width = this.W * CELL_PX; c.height = this.H * CELL_PX;
+    const p = c.getContext("2d");
+    p.strokeStyle = ink; p.fillStyle = ink; p.lineWidth = 1.3;
+    if (kind === "diag") {
+      c.width = c.height = 8;
+      p.beginPath(); p.moveTo(0, 8); p.lineTo(8, 0); p.moveTo(-2, 2); p.lineTo(2, -2); p.moveTo(6, 10); p.lineTo(10, 6); p.stroke();
+    } else if (kind === "cross") {
+      c.width = c.height = 9;
+      p.beginPath(); p.moveTo(0, 9); p.lineTo(9, 0); p.moveTo(0, 0); p.lineTo(9, 9); p.stroke();
+    } else if (kind === "cyl") {
+      c.width = 8; c.height = 11;
+      p.beginPath(); if (p.roundRect) p.roundRect(2.2, 1.5, 3.6, 8, 1.8); else p.rect(2.2, 1.5, 3.6, 8); p.fill();
+    } else {
+      c.width = 10; c.height = 8;
+      p.beginPath(); p.moveTo(0, 5.5); p.lineTo(2.5, 2.5); p.lineTo(5, 5.5); p.lineTo(7.5, 2.5); p.lineTo(10, 5.5); p.stroke();
+    }
+    return g.createPattern(c, "repeat");
+  }
+
+  _buildStatic() {
+    const P = CELL_PX, W = this.W, H = this.H, T = this.T;
+    const c = document.createElement("canvas");
+    c.width = W * P; c.height = H * P;
     const g = c.getContext("2d");
-    const P = CELL_PX;
-    for (let y = 0; y < this.H; y++) {
-      for (let x = 0; x < this.W; x++) {
-        const ch = this.cell(x, y);
-        const m = MAT[ch] || MAT["."];
-        g.fillStyle = m.c;
-        g.fillRect(x * P, y * P, P, P);
-        if (ch === "#") {
-          g.fillStyle = "rgba(255,255,255,.06)"; g.fillRect(x * P, y * P, P, 3);
-        } else {
-          g.strokeStyle = "rgba(255,255,255,.035)"; g.strokeRect(x * P + .5, y * P + .5, P - 1, P - 1);
-        }
-        if (ch === "P") { g.strokeStyle = "rgba(255,220,160,.25)"; g.strokeRect(x * P + 5, y * P + 5, P - 10, P - 10); }
-        if (ch === "F") { g.fillStyle = "rgba(220,170,255,.28)"; g.beginPath(); g.arc(x * P + P / 2, y * P + P / 2, P / 3.2, 0, 7); g.fill(); }
-        if (ch === "G") { g.fillStyle = "rgba(255,240,120,.35)"; g.fillRect(x * P + P / 2 - 4, y * P + 5, 8, P - 10); }
-        if (ch === "X") { g.fillStyle = "rgba(120,220,255,.55)"; g.font = `${P * .6}px sans-serif`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("⚡", x * P + P / 2, y * P + P / 2 + 1); }
-        if (ch === "D") { g.fillStyle = "#c9954a"; g.fillRect(x * P + 4, y * P + P / 2 - 3, P - 8, 6); }
-      }
+
+    // sol + trame métrique très discrète
+    g.fillStyle = T["map-floor"]; g.fillRect(0, 0, W * P, H * P);
+    g.strokeStyle = T["map-grid"]; g.lineWidth = 1;
+    g.beginPath();
+    for (let x = 0; x <= W; x++) { g.moveTo(x * P + .5, 0); g.lineTo(x * P + .5, H * P); }
+    for (let y = 0; y <= H; y++) { g.moveTo(0, y * P + .5); g.lineTo(W * P, y * P + .5); }
+    g.stroke();
+
+    // matières : teinte + hachure continue, contour de chaque îlot de stockage
+    const pats = {};
+    for (const [k, kind] of Object.entries(MATERIAL_KIND)) pats[k] = this._pattern(g, kind, T[`mat-${k.toLowerCase()}-ink`]);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const ch = this.cell(x, y);
+      if (!MATERIAL_KIND[ch]) continue;
+      g.fillStyle = T[`mat-${ch.toLowerCase()}-base`]; g.fillRect(x * P, y * P, P, P);
+      g.fillStyle = pats[ch]; g.fillRect(x * P, y * P, P, P);
     }
-    // sorties
-    g.textAlign = "center"; g.textBaseline = "middle";
+    g.strokeStyle = T["map-island"]; g.lineWidth = 1.5;
+    g.beginPath();
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const ch = this.cell(x, y); if (!MATERIAL_KIND[ch]) continue;
+      if (this.cell(x, y - 1) !== ch) { g.moveTo(x * P, y * P); g.lineTo((x + 1) * P, y * P); }
+      if (this.cell(x, y + 1) !== ch) { g.moveTo(x * P, (y + 1) * P); g.lineTo((x + 1) * P, (y + 1) * P); }
+      if (this.cell(x - 1, y) !== ch) { g.moveTo(x * P, y * P); g.lineTo(x * P, (y + 1) * P); }
+      if (this.cell(x + 1, y) !== ch) { g.moveTo((x + 1) * P, y * P); g.lineTo((x + 1) * P, (y + 1) * P); }
+    }
+    g.stroke();
+
+    // murs pleins (poché) : épais, lisibles au vidéoprojecteur
+    g.fillStyle = T["map-wall"];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (this.cell(x, y) === "#") g.fillRect(x * P, y * P, P, P);
+
+    // portes intérieures : ouverture + vantail + arc de débattement
+    g.lineCap = "round";
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (this.cell(x, y) !== "D") continue;
+      g.fillStyle = T["map-floor"]; g.fillRect(x * P, y * P, P, P);
+      const horizontal = this.cell(x - 1, y) === "#" && this.cell(x + 1, y) === "#";
+      const hx = horizontal ? x * P : (x + 1) * P, hy = y * P;
+      g.strokeStyle = T["map-door"]; g.lineWidth = 2;
+      g.beginPath();
+      if (horizontal) { g.moveTo(hx, hy); g.lineTo(hx, hy - P); }      // mur horizontal : ouvre vers le haut
+      else { g.moveTo(hx, hy); g.lineTo(hx + P, hy); }                  // mur vertical : ouvre vers la droite
+      g.stroke();
+      g.lineWidth = 1; g.strokeStyle = T["map-door-arc"];
+      g.beginPath();
+      if (horizontal) g.arc(hx, hy, P, -Math.PI / 2, 0); else g.arc(hx, hy, P, 0, Math.PI / 2);
+      g.stroke();
+    }
+
+    // sorties : baie ouverte, pictogramme vert, repère E1…
     for (const e of this.f.exits || []) {
-      g.fillStyle = "#2ee87a"; g.fillRect(e.x * P + 3, e.y * P + 3, P - 6, P - 6);
-      g.fillStyle = "#03200f"; g.font = `bold ${P * .42}px system-ui`; g.fillText(e.id, e.x * P + P / 2, e.y * P + P / 2 + 1);
+      g.fillStyle = T["map-floor"]; g.fillRect(e.x * P, e.y * P, P, P);
+      this._picto(g, "exit", (e.x + .5) * P, (e.y + .5) * P, P * 1.15);
+      const inX = e.x === 0 ? 1 : e.x === W - 1 ? -1 : 0, inY = e.y === 0 ? 1 : e.y === H - 1 ? -1 : 0;
+      g.font = `700 ${P * .5}px ${FONT_COND}`; g.fillStyle = T["map-exit-label"]; g.textBaseline = "middle";
+      g.textAlign = inX > 0 ? "left" : inX < 0 ? "right" : "center";
+      g.fillText(e.id, (e.x + .5 + inX * 1.05) * P, (e.y + .5 + inY * 1.05) * P);
     }
-    // bouches d'incendie
-    for (const [x, y] of this.f.hydrants || []) {
-      g.fillStyle = "#1d4ed8"; g.beginPath(); g.arc(x * P + P / 2, y * P + P / 2, P / 3, 0, 7); g.fill();
-      g.fillStyle = "#fff"; g.font = `bold ${P * .4}px system-ui`; g.fillText("H", x * P + P / 2, y * P + P / 2 + 1);
+    // équipements et poteaux incendie
+    for (const e of this.f.equipment || []) this._picto(g, e.type, (e.x + .5) * P, (e.y + .5) * P, P * .88);
+    for (const h of this.f.hydrants || []) {
+      const [x, y] = Array.isArray(h) ? h : [h.x, h.y];
+      this._picto(g, "hydrant", (x + .5) * P, (y + .5) * P, P * .95);
     }
-    // équipements
-    for (const e of this.f.equipment || []) {
-      g.font = `${P * .72}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif`;
-      g.fillStyle = "#fff";
-      g.fillText(EQUIP_ICON[e.type] || "■", e.x * P + P / 2, e.y * P + P / 2 + 2);
-    }
-    // noms des zones
+
+    // noms des zones, posés comme sur un plan d'architecte
     g.textAlign = "left"; g.textBaseline = "top";
     for (const z of this.f.zones || []) {
-      g.font = `600 ${P * .42}px system-ui`;
-      g.fillStyle = "rgba(190,205,230,.42)";
-      g.fillText(z.id + " · " + z.name.toUpperCase(), z.rect[0] * P + 6, z.rect[1] * P + 5);
+      const [x0, y0, x1, y1] = z.rect;
+      g.font = `700 ${P * .46}px ${FONT_COND}`; g.fillStyle = T["map-label"];
+      g.fillText(`${z.id}  ${z.name}`, x0 * P + P * .25, y0 * P + P * .2);
+      g.font = `500 ${P * .36}px ${FONT_COND}`; g.fillStyle = T["map-label-2"];
+      g.fillText(`${(x1 - x0 + 1) * (y1 - y0 + 1)} m²`, x0 * P + P * .25, y0 * P + P * .72);
     }
     this.staticLayer = c;
   }
 
-  // Remplit un petit canvas W×H (1 px = 1 cellule) puis l'agrandit avec lissage :
-  // nuages de fumée et bords du brouillard deviennent doux, pour un coût minime.
+  _picto(g, name, cx, cy, size) {
+    const img = Icons.img(name);
+    if (img) g.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+  }
+
+  // petit canvas W×H (1 px = 1 cellule) agrandi avec lissage : densités douces pour pas cher
   _field(key, ctx, fill) {
     this._f = this._f || {};
     let o = this._f[key];
@@ -157,41 +271,36 @@ class MapView {
     ctx.drawImage(o.c, 0, 0, this.W, this.H);
   }
 
-  _glow(ctx, cells, t, rx0, ry0, rx1, ry1, seen) {
-    ctx.globalCompositeOperation = "lighter";
-    for (const [x, y] of cells) {
-      if (x < rx0 - 2 || x > rx1 + 2 || y < ry0 - 2 || y > ry1 + 2) continue;
-      const n = U.noise(x, y, t * 3.1, 1);
-      const rad = (seen ? 1.5 : 1.3) + 0.4 * n;
-      const gr = ctx.createRadialGradient(x + .5, y + .5, 0, x + .5, y + .5, rad);
-      const a = seen ? 0.22 + 0.12 * n : 0.09 + 0.06 * n;
-      gr.addColorStop(0, `rgba(255,140,40,${a})`);
-      gr.addColorStop(1, "rgba(255,60,0,0)");
-      ctx.fillStyle = gr;
-      ctx.fillRect(x + .5 - rad, y + .5 - rad, rad * 2, rad * 2);
-    }
-    ctx.globalCompositeOperation = "source-over";
+  _makeHatch(color, step) {
+    const c = document.createElement("canvas"); c.width = c.height = step;
+    const g = c.getContext("2d");
+    g.strokeStyle = color; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, step); g.lineTo(step, 0); g.moveTo(-1, 1); g.lineTo(1, -1); g.moveTo(step - 1, step + 1); g.lineTo(step + 1, step - 1); g.stroke();
+    return this.ctx.createPattern(c, "repeat");
   }
 
-  _makeHatch() {
-    const c = document.createElement("canvas"); c.width = c.height = 10;
-    const g = c.getContext("2d");
-    g.strokeStyle = "rgba(120,140,170,.10)"; g.lineWidth = 1;
-    g.beginPath(); g.moveTo(0, 10); g.lineTo(10, 0); g.stroke();
-    return this.ctx.createPattern(c, "repeat");
+  // cellules données, remplies d'un motif en coordonnées écran (hachures nettes à tout zoom)
+  _hatchCells(ctx, v, keys, pattern, alpha, test) {
+    ctx.save();
+    ctx.scale(1 / v.s, 1 / v.s);
+    ctx.fillStyle = pattern; ctx.globalAlpha = alpha;
+    for (const k of keys) {
+      const [x, y] = typeof k === "string" ? k.split(",").map(Number) : k;
+      if (test && !test(x, y)) continue;
+      ctx.fillRect(x * v.s, y * v.s, v.s, v.s);
+    }
+    ctx.restore();
   }
 
   // -------------------------------------------------------------- dessin
   draw(now) {
     const s = Live.s;
-    const ctx = this.ctx;
-    const t = now / 1000;
-    // caméra animée (zoom fluide)
-    const kc = 0.12;
-    for (const k of ["x", "y", "w", "h"]) this.cam[k] = U.lerp(this.cam[k], this.camTarget[k], kc);
+    const ctx = this.ctx, T = this.T;
+    if (REDUCED_MOTION) this.cam = { ...this.camTarget };
+    else for (const k of ["x", "y", "w", "h"]) this.cam[k] = U.lerp(this.cam[k], this.camTarget[k], 0.12);
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.fillStyle = "#05070b";
+    ctx.fillStyle = T["map-bg"];
     ctx.fillRect(0, 0, this.cssW, this.cssH);
     const v = this._view();
     this._ox = v.ox;
@@ -200,148 +309,154 @@ class MapView {
     ctx.scale(v.s, v.s);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.staticLayer, 0, 0, this.W, this.H);
-    if (!s) { ctx.restore(); return; }
+    if (!s) { ctx.restore(); if (!this.detail) this._overlays(ctx, null, v); return; }
 
     const fog = this.layers.fog && Live.fogOn();
     const revealed = (k) => !fog || Live.revealAt.has(k);
     const rx0 = Math.max(0, Math.floor(this.cam.x)), ry0 = Math.max(0, Math.floor(this.cam.y));
     const rx1 = Math.min(this.W, Math.ceil(this.cam.x + this.cam.w)), ry1 = Math.min(this.H, Math.ceil(this.cam.y + this.cam.h));
 
-    // cellules brûlées (vues)
-    ctx.fillStyle = "rgba(8,6,6,.72)";
+    // brûlé : le bas de la palette thermique
+    ctx.fillStyle = T["map-burnt"];
     for (const k of Live.burnt) if (revealed(k)) { const [x, y] = k.split(",").map(Number); ctx.fillRect(x, y, 1, 1); }
 
-
-    // fumée (ondule)
+    // fumée : couche de densité grise, douce et immobile
     if (this.layers.smoke && Live.smokeNow.size) {
+      const [sr, sg, sb] = hexRgb(T["map-smoke"]);
       this._field("smoke", ctx, (d) => {
         for (const k of Live.smokeNow) {
           if (!revealed(k)) continue;
           const [x, y] = k.split(",").map(Number);
-          const n = U.noise(x * .35, y * .35, t * .7);
           const i = (y * this.W + x) * 4;
-          d[i] = 150; d[i + 1] = 160; d[i + 2] = 176; d[i + 3] = Math.round(255 * (0.22 + 0.3 * n));
+          d[i] = sr; d[i + 1] = sg; d[i + 2] = sb; d[i + 3] = Math.round(255 * (0.26 + 0.16 * U.noise(x * .35, y * .35, 0)));
         }
       });
     }
-    // gaz (points qui pulsent)
+    // gaz : hachure jaune-vert
     if (this.layers.gas && Live.gasNow.size) {
-      this._field("gas", ctx, (d) => {
-        for (const k of Live.gasNow) {
-          if (!revealed(k)) continue;
-          const [x, y] = k.split(",").map(Number);
-          const i = (y * this.W + x) * 4;
-          d[i] = 182; d[i + 1] = 227; d[i + 2] = 61; d[i + 3] = Math.round(255 * (0.2 + 0.2 * U.noise(x, y, t * 1.5, 3)));
-        }
-      });
-      for (const k of Live.gasNow) {
-        if (!revealed(k)) continue;
-        const [x, y] = k.split(",").map(Number);
-        const n = U.noise(x, y, t * 1.5, 3);
-        ctx.fillStyle = `rgba(220,255,120,${0.5 * n})`;
-        ctx.beginPath(); ctx.arc(x + .3 + .4 * n, y + .5, .09, 0, 7); ctx.fill();
-      }
+      ctx.fillStyle = withAlpha(T["map-gas"], .12);
+      for (const k of Live.gasNow) if (revealed(k)) { const [x, y] = k.split(",").map(Number); ctx.fillRect(x, y, 1, 1); }
+      this._hatchCells(ctx, v, Live.gasNow, this._gasPattern, 1, (x, y) => revealed(x + "," + y));
     }
 
-    // feu : cellules qui scintillent + halo additif
-    if (this.layers.fire) {
-      const cells = [];
-      for (const k of Live.fireNow) { const [x, y] = k.split(",").map(Number); cells.push([x, y, revealed(k)]); }
-      for (const [x, y, rv] of cells) {
-        if (!rv) continue;
-        const n = U.noise(x, y, t * 2.2);
-        const r = 255, gg = Math.round(60 + 140 * n), b = Math.round(20 + 30 * n);
-        ctx.fillStyle = `rgb(${r},${gg},${b})`;
-        ctx.fillRect(x, y, 1, 1);
+    // feu en INFERNO : front actif clair, cœur rouge-violet
+    this._fireHidden = [];
+    if (this.layers.fire && Live.fireNow.size) {
+      const seen = [];
+      for (const k of Live.fireNow) {
+        const [x, y] = k.split(",").map(Number);
+        (revealed(k) ? seen : this._fireHidden).push([x, y]);
       }
-      this._glow(ctx, cells.filter(c => c[2]), t, rx0, ry0, rx1, ry1, true);
-      this._fireHidden = cells.filter(c => !c[2]);
-    } else this._fireHidden = [];
+      const front = ([x, y]) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) =>
+        !Live.fireNow.has((x + dx) + "," + (y + dy)) && this.cell(x + dx, y + dy) !== "#");
+      this._field("fire", ctx, (d) => {
+        for (const c of seen) {
+          const [r, gg, b] = this.infernoAt((front(c) ? 0.9 : 0.6) + 0.08 * U.noise(c[0], c[1], 0));
+          const i = (c[1] * this.W + c[0]) * 4;
+          d[i] = r; d[i + 1] = gg; d[i + 2] = b; d[i + 3] = 255;
+        }
+      });
+      this._glow(ctx, seen.filter(front), rx0, ry0, rx1, ry1, 0.16);
+    }
 
-    // brouillard de guerre (inconnu) + fondu des cellules découvertes
+    // zones non encore vues par le drone (voile sombre, ou papier en thème clair)
     if (fog) {
+      const [fr, fg, fb] = hexRgb(T["map-fog"]);
       this._field("fog", ctx, (d) => {
         for (let y = 0; y < this.H; y++) {
           for (let x = 0; x < this.W; x++) {
             const ra = Live.revealAt.get(x + "," + y);
-            let a = 0.8;
-            if (ra != null) a = 0.8 * (1 - U.clamp((now - ra) / 600, 0, 1));
+            let a = 0.78;
+            if (ra != null) a = REDUCED_MOTION ? 0 : 0.78 * (1 - U.clamp((now - ra) / 600, 0, 1));
             const i = (y * this.W + x) * 4;
-            d[i] = 4; d[i + 1] = 6; d[i + 2] = 10; d[i + 3] = Math.round(255 * a);
+            d[i] = fr; d[i + 1] = fg; d[i + 2] = fb; d[i + 3] = Math.round(255 * a);
           }
         }
       });
-      ctx.save();
-      ctx.scale(1 / v.s, 1 / v.s);
-      ctx.fillStyle = this._fogPattern;
-      ctx.globalAlpha = 0.9;
-      for (let y = ry0; y < ry1; y++)
-        for (let x = rx0; x < rx1; x++)
-          if (!Live.revealAt.has(x + "," + y)) ctx.fillRect(x * v.s, y * v.s, v.s, v.s);
-      ctx.restore();
+      const unseen = [];
+      for (let y = ry0; y < ry1; y++) for (let x = rx0; x < rx1; x++) if (!Live.revealAt.has(x + "," + y)) unseen.push([x, y]);
+      this._hatchCells(ctx, v, unseen, this._fogPattern, 1);
     }
-    // feu pas encore vu par le drone : simple lueur "estimée" (capteurs fixes), au-dessus du brouillard
-    if (this._fireHidden && this._fireHidden.length) this._glow(ctx, this._fireHidden, t, rx0, ry0, rx1, ry1, false);
+    // feu signalé par les capteurs mais pas encore vu : lueur estimée, au-dessus des zones non vues
+    if (this._fireHidden.length) this._glow(ctx, this._fireHidden, rx0, ry0, rx1, ry1, 0.1);
 
-    // prévision du feu (+3 min) pendant le trajet : au-dessus du brouillard
+    // prévision du feu (+3 min) pendant le trajet : contour pointillé, voile léger
     if (s.phase === "EN_ROUTE" && Live.forecast.size) {
-      const a = 0.2 + 0.12 * Math.sin(t * 3);
-      this._field("forecast", ctx, (d) => {
-        for (const k of Live.forecast) {
-          const [x, y] = k.split(",").map(Number);
-          const i = (y * this.W + x) * 4;
-          d[i] = 255; d[i + 1] = 70; d[i + 2] = 40; d[i + 3] = Math.round(255 * a);
-        }
-      });
-      ctx.strokeStyle = "rgba(255,120,90,.55)"; ctx.lineWidth = .05; ctx.setLineDash([.25, .2]);
-      for (const k of Live.forecast) { const [x, y] = k.split(",").map(Number); if (!Live.forecast.has((x + 1) + "," + y)) { ctx.beginPath(); ctx.moveTo(x + 1, y); ctx.lineTo(x + 1, y + 1); ctx.stroke(); } if (!Live.forecast.has(x + "," + (y + 1))) { ctx.beginPath(); ctx.moveTo(x, y + 1); ctx.lineTo(x + 1, y + 1); ctx.stroke(); } if (!Live.forecast.has((x - 1) + "," + y)) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 1); ctx.stroke(); } if (!Live.forecast.has(x + "," + (y - 1))) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 1, y); ctx.stroke(); } }
-      ctx.setLineDash([]);
+      ctx.fillStyle = withAlpha(T["inferno-3"], .16);
+      for (const k of Live.forecast) { const [x, y] = k.split(",").map(Number); ctx.fillRect(x, y, 1, 1); }
+      ctx.strokeStyle = withAlpha(this.light ? T["alarm"] : T["inferno-4"], .9);
+      ctx.lineWidth = 1.5 / v.s; ctx.setLineDash([4 / v.s, 3 / v.s]);
+      ctx.beginPath();
+      for (const k of Live.forecast) {
+        const [x, y] = k.split(",").map(Number);
+        if (!Live.forecast.has((x + 1) + "," + y)) { ctx.moveTo(x + 1, y); ctx.lineTo(x + 1, y + 1); }
+        if (!Live.forecast.has(x + "," + (y + 1))) { ctx.moveTo(x, y + 1); ctx.lineTo(x + 1, y + 1); }
+        if (!Live.forecast.has((x - 1) + "," + y)) { ctx.moveTo(x, y); ctx.lineTo(x, y + 1); }
+        if (!Live.forecast.has(x + "," + (y - 1))) { ctx.moveTo(x, y); ctx.lineTo(x + 1, y); }
+      }
+      ctx.stroke(); ctx.setLineDash([]);
     }
 
-    this._drawZoneAlerts(ctx, s, t, v);
-    if (this.layers.paths) this._drawPlans(ctx, s, t);
-    this._drawTrail(ctx, s);
-    this._drawSensors(ctx, s, t);
-    this._drawVictims(ctx, s, t);
-    this._drawDrone(ctx, s, t, now);
-    if (this.detail) this._drawDetailLabels(ctx, s, t, v);
-    else this._drawZoneChips(ctx, s, t, v);
+    this._drawZoneAlerts(ctx, s, now, v);
+    this._drawTrail(ctx, s, v);                       // sous les plans, les victimes et les étiquettes
+    if (this.layers.paths) this._drawPlans(ctx, s, v);
+    this._drawSensors(ctx, s, v);
+    this._drawVictims(ctx, s, now, v);
+    this._drawDrone(ctx, s, now, v);
+    if (this.detail) this._drawDetailLabels(ctx, s, v);
+    else this._drawZoneChips(ctx, s, v);
+    this._drawDroneLabel(ctx, v);
 
-    // survol
     if (this.hover && !this.detail) {
-      ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 0.06;
-      ctx.strokeRect(this.hover[0] + .03, this.hover[1] + .03, .94, .94);
+      ctx.strokeStyle = withAlpha(T["map-ink"], .8); ctx.lineWidth = 1.5 / v.s;
+      ctx.strokeRect(this.hover[0] + .04, this.hover[1] + .04, .92, .92);
     }
     if (this.detail && this.focusZone && this.zoneById[this.focusZone]) {
       const [x0, y0, x1, y1] = this.zoneById[this.focusZone].rect;
-      ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.setLineDash([.3, .2]); ctx.lineWidth = .06;
+      ctx.strokeStyle = withAlpha(T["map-ink"], .35); ctx.setLineDash([4 / v.s, 3 / v.s]); ctx.lineWidth = 1 / v.s;
       ctx.strokeRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1); ctx.setLineDash([]);
     }
     ctx.restore();
+    if (!this.detail) this._overlays(ctx, s, v);
   }
 
-  _drawZoneAlerts(ctx, s, t, v) {
+  _glow(ctx, cells, rx0, ry0, rx1, ry1, alpha) {
+    const T = this.T;
+    // halo en composition normale dans les deux thèmes : le mode additif ("lighter")
+    // empêchait l'affichage de toute la carte sur certains rendus logiciels
+    for (const [x, y] of cells) {
+      if (x < rx0 - 2 || x > rx1 + 2 || y < ry0 - 2 || y > ry1 + 2) continue;
+      const gr = ctx.createRadialGradient(x + .5, y + .5, 0, x + .5, y + .5, 1.6);
+      gr.addColorStop(0, withAlpha(T["inferno-4"], alpha));
+      gr.addColorStop(1, withAlpha(T["inferno-3"], 0));
+      ctx.fillStyle = gr;
+      ctx.fillRect(x - 1.1, y - 1.1, 3.2, 3.2);
+    }
+  }
+
+  _drawZoneAlerts(ctx, s, now, v) {
+    const T = this.T;
     for (const [zid, z] of Object.entries(s.zones || {})) {
+      const prev = this._zoneLvl.get(zid);
+      const rank = { NORMAL: 0, WARNING: 1, DANGER: 2 };
+      if (!prev || rank[z.level] > rank[prev.level]) this._zoneLvl.set(zid, { level: z.level, at: prev ? now : -1e9 });
+      else if (rank[z.level] < rank[prev.level]) this._zoneLvl.set(zid, { level: z.level, at: -1e9 });
       if (z.level === "NORMAL") continue;
       const zr = this.zoneById[zid]; if (!zr) continue;
       const [x0, y0, x1, y1] = zr.rect;
-      const danger = z.level === "DANGER";
-      const pulse = 0.5 + 0.5 * Math.sin(t * (danger ? 5 : 3));
-      const col = danger ? "255,77,61" : "255,159,28";
-      ctx.fillStyle = `rgba(${col},${0.04 + 0.05 * pulse})`;
+      const col = z.level === "DANGER" ? T["alarm"] : T["amber"];
+      ctx.fillStyle = withAlpha(col, .05);
       ctx.fillRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
-      ctx.strokeStyle = `rgba(${col},${0.45 + 0.45 * pulse})`;
-      ctx.lineWidth = 2.2 / v.s;
-      ctx.strokeRect(x0 + .05, y0 + .05, x1 - x0 + .9, y1 - y0 + .9);
-      // ondes depuis la mesure la plus grave
+      ctx.strokeStyle = withAlpha(col, .9);
+      ctx.lineWidth = 2.5 / v.s;
+      ctx.strokeRect(x0 + .04, y0 + .04, x1 - x0 + .92, y1 - y0 + .92);
+      // une seule onde, au moment où la zone passe en alerte
       const r0 = z.top && z.top[0];
-      if (r0 && danger) {
-        for (let i = 0; i < 2; i++) {
-          const ph = ((t * 0.7 + i * 0.5) % 1);
-          ctx.strokeStyle = `rgba(${col},${0.6 * (1 - ph)})`;
-          ctx.lineWidth = 1.5 / v.s;
-          ctx.beginPath(); ctx.arc(r0.x + .5, r0.y + .5, 0.5 + ph * 4, 0, 7); ctx.stroke();
-        }
+      const age = (now - this._zoneLvl.get(zid).at) / 1000;
+      if (r0 && !REDUCED_MOTION && age >= 0 && age < 1.6) {
+        ctx.strokeStyle = withAlpha(col, 0.8 * (1 - age / 1.6));
+        ctx.lineWidth = 2 / v.s;
+        ctx.beginPath(); ctx.arc(r0.x + .5, r0.y + .5, 0.6 + age * 3.5, 0, 7); ctx.stroke();
       }
     }
   }
@@ -352,110 +467,176 @@ class MapView {
     ctx.stroke();
   }
 
-  _drawPlans(ctx, s, t) {
+  _drawPlans(ctx, s, v) {
     if (!["DRONE_INSIDE", "PLANS_READY"].includes(s.phase)) return;
-    const p = s.plans || {};
+    const p = s.plans || {}, T = this.T;
     ctx.lineCap = "round"; ctx.lineJoin = "round";
-    ctx.setLineDash([.45, .3]);
-    ctx.lineDashOffset = -t * 1.2;          // "fourmis" qui avancent vers la sortie
+    // évacuation : vert ISO, trait plein, liseré pour se détacher du feu
     for (const e of p.evacuation || []) {
       if (!e.path || e.path.length < 2) continue;
-      ctx.strokeStyle = e.rescue_first ? "rgba(255,120,90,.95)" : "rgba(46,204,113,.95)";
-      ctx.lineWidth = e.rescue_first ? .24 : .18;
-      this._path(ctx, e.path);
+      ctx.strokeStyle = withAlpha(T["map-halo"], .85); ctx.lineWidth = 5.5 / v.s; this._path(ctx, e.path);
+      ctx.strokeStyle = T["evac"]; ctx.lineWidth = 3 / v.s; this._path(ctx, e.path);
     }
+    // entrée des pompiers : bleu, tirets
     if (p.entry && p.entry.path && p.entry.path.length > 1) {
-      ctx.strokeStyle = "rgba(34,211,238,.95)"; ctx.lineWidth = .22;
-      this._path(ctx, p.entry.path);
+      ctx.setLineDash([8 / v.s, 5 / v.s]);
+      ctx.strokeStyle = withAlpha(T["map-halo"], .85); ctx.lineWidth = 5.5 / v.s; this._path(ctx, p.entry.path);
+      ctx.strokeStyle = T["entry"]; ctx.lineWidth = 3 / v.s; this._path(ctx, p.entry.path);
+      ctx.setLineDash([]);
     }
-    ctx.setLineDash([]);
-    // ordre d'extinction : pastilles numérotées sur chaque zone en feu
+    // attaques : cercle rouge numéroté + flèche depuis le côté d'attaque
     const byZone = {};
     for (const k of Live.fireNow) {
       const [x, y] = k.split(",").map(Number);
-      const z = this.zoneAt(x, y); if (!z) continue;
-      (byZone[z.id] = byZone[z.id] || []).push([x, y]);
+      const z = this.zoneAt(x, y); if (z) (byZone[z.id] = byZone[z.id] || []).push([x, y]);
     }
     for (const e of p.extinguish || []) {
-      const cells = byZone[e.zone]; if (!cells) continue;
-      const cx = cells.reduce((a, c) => a + c[0], 0) / cells.length + .5;
-      const cy = cells.reduce((a, c) => a + c[1], 0) / cells.length + .5;
-      ctx.fillStyle = "rgba(10,14,20,.9)"; ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = .1;
-      ctx.beginPath(); ctx.arc(cx, cy, .75, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = "#ffd23f"; ctx.font = "bold .9px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(e.order, cx, cy + .05);
+      let cx, cy;
+      if (e.at) { cx = e.at[0] + .5; cy = e.at[1] + .5; }
+      else {
+        const cells = byZone[e.zone]; if (!cells) continue;
+        cx = cells.reduce((a, c) => a + c[0], 0) / cells.length + .5;
+        cy = cells.reduce((a, c) => a + c[1], 0) / cells.length + .5;
+      }
+      const dir = SIDE_VEC[e.attack_from];
+      if (dir) {
+        const ax = cx + dir[0] * 3.2, ay = cy + dir[1] * 3.2, bx = cx + dir[0] * 1.05, by = cy + dir[1] * 1.05;
+        ctx.strokeStyle = T["attack"]; ctx.fillStyle = T["attack"]; ctx.lineWidth = 3 / v.s;
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+        const a = Math.atan2(by - ay, bx - ax), hl = .55;
+        ctx.beginPath(); ctx.moveTo(bx, by);
+        ctx.lineTo(bx - hl * Math.cos(a - .5), by - hl * Math.sin(a - .5));
+        ctx.lineTo(bx - hl * Math.cos(a + .5), by - hl * Math.sin(a + .5)); ctx.closePath(); ctx.fill();
+      }
+      ctx.fillStyle = T["alarm-fill"]; ctx.strokeStyle = T["map-halo"]; ctx.lineWidth = 2 / v.s;
+      ctx.beginPath(); ctx.arc(cx, cy, .72, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = T["on-accent"]; ctx.font = `700 .9px ${FONT_COND}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(String(e.order), cx, cy + .04);
     }
   }
 
-  _drawTrail(ctx, s) {
-    const tr = s.trail || [];
-    if (tr.length < 2) return;
-    ctx.lineCap = "round"; ctx.lineJoin = "round";
-    for (let i = 1; i < tr.length; i++) {
-      const a = i / tr.length;
-      ctx.strokeStyle = `rgba(61,165,255,${0.05 + 0.45 * a})`;
-      ctx.lineWidth = 0.12 + 0.12 * a;
-      ctx.beginPath();
-      ctx.moveTo(tr[i - 1][0] + .5, tr[i - 1][1] + .5);
-      ctx.lineTo(tr[i][0] + .5, tr[i][1] + .5);
-      ctx.stroke();
+  // trajectoire du drone : une seule ligne de vol lissée (Catmull-Rom centripète) passant
+  // par les positions envoyées par le serveur ; les segments anciens s'estompent.
+  _drawTrail(ctx, s, v) {
+    const raw = s.trail || [];
+    const pts = [];
+    for (const [x, y] of raw) {
+      const p = [x + .5, y + .5], q = pts[pts.length - 1];
+      if (!q || q[0] !== p[0] || q[1] !== p[1]) pts.push(p);
+    }
+    if (!pts.length) return;
+    const T = this.T, ink = T["map-ink"];
+    if (pts.length > 1) {
+      const n = pts.length - 1;
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.lineWidth = 2 / v.s;
+      for (let i = 0; i < n; i++) {
+        const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(n, i + 2)];
+        const [c1, c2] = MapView._crControls(p0, p1, p2, p3);
+        const a = 0.08 + 0.62 * Math.pow((i + 1) / n, 1.6);
+        ctx.strokeStyle = withAlpha(ink, a);
+        ctx.beginPath(); ctx.moveTo(p1[0], p1[1]); ctx.bezierCurveTo(c1[0], c1[1], c2[0], c2[1], p2[0], p2[1]); ctx.stroke();
+      }
+    }
+    // point d'entrée, et point de sortie une fois le drone dehors
+    const mark = (p, filled, text) => {
+      ctx.lineWidth = 2 / v.s; ctx.strokeStyle = ink; ctx.fillStyle = filled ? ink : T["map-halo"];
+      ctx.beginPath(); ctx.arc(p[0], p[1], .32, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.save(); ctx.scale(1 / v.s, 1 / v.s);
+      ctx.font = `600 11px ${FONT_COND}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.lineWidth = 3; ctx.strokeStyle = T["map-halo"]; ctx.strokeText(text, p[0] * v.s, (p[1] - .45) * v.s);
+      ctx.fillStyle = ink; ctx.fillText(text, p[0] * v.s, (p[1] - .45) * v.s);
+      ctx.restore();
+    };
+    const first = pts[0], fe = this.nearestExit(first[0] - .5, first[1] - .5);
+    mark(first, false, fe ? `Entrée ${fe.id}` : "Entrée");
+    if (s.drone && s.drone.state === "OUT" && pts.length > 1) {
+      const last = pts[pts.length - 1], le = this.nearestExit(last[0] - .5, last[1] - .5);
+      mark(last, true, le ? `Sortie ${le.id}` : "Sortie");
     }
   }
 
-  _drawSensors(ctx, s, t) {
+  // points de contrôle Bézier d'un segment p1→p2 de Catmull-Rom centripète (alpha = 0,5)
+  static _crControls(p0, p1, p2, p3) {
+    const d = (a, b) => Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1]));
+    const d1 = d(p0, p1), d2 = d(p1, p2), d3 = d(p2, p3), e = 1e-6;
+    let c1 = p1, c2 = p2;
+    if (d1 > e) {
+      const a = d1 * d1, b = d2 * d2, k = 2 * a + 3 * d1 * d2 + b, m = 3 * d1 * (d1 + d2);
+      c1 = [(a * p2[0] - b * p0[0] + k * p1[0]) / m, (a * p2[1] - b * p0[1] + k * p1[1]) / m];
+    } else c1 = [p1[0] + (p2[0] - p1[0]) / 3, p1[1] + (p2[1] - p1[1]) / 3];
+    if (d3 > e) {
+      const a = d3 * d3, b = d2 * d2, k = 2 * a + 3 * d3 * d2 + b, m = 3 * d3 * (d3 + d2);
+      c2 = [(a * p1[0] - b * p3[0] + k * p2[0]) / m, (a * p1[1] - b * p3[1] + k * p2[1]) / m];
+    } else c2 = [p2[0] - (p2[0] - p1[0]) / 3, p2[1] - (p2[1] - p1[1]) / 3];
+    return [c1, c2];
+  }
+
+  _drawSensors(ctx, s, v) {
+    const T = this.T;
     for (const se of s.sensors || []) {
-      const col = se.level === "ALARM" ? "#ff4d3d" : se.level === "WARNING" ? "#ffd23f" : "#2ecc71";
-      const blink = se.level === "ALARM" ? (Math.sin(t * 8) > 0 ? 1 : .35) : 1;
-      ctx.fillStyle = "rgba(10,14,20,.9)";
-      ctx.fillRect(se.x + .18, se.y + .18, .64, .64);
-      ctx.globalAlpha = blink;
-      ctx.fillStyle = col;
-      ctx.beginPath(); ctx.arc(se.x + .5, se.y + .5, .2, 0, 7); ctx.fill();
-      if (se.level === "ALARM") {
-        const ph = (t * 1.2) % 1;
-        ctx.strokeStyle = `rgba(255,77,61,${1 - ph})`; ctx.lineWidth = .08;
-        ctx.beginPath(); ctx.arc(se.x + .5, se.y + .5, .3 + ph * 1.4, 0, 7); ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
+      const col = se.level === "ALARM" ? T["alarm"] : se.level === "WARNING" ? T["amber"] : null;
+      ctx.fillStyle = col || T["map-halo"]; ctx.strokeStyle = col || T["map-ink-2"]; ctx.lineWidth = 1.5 / v.s;
+      ctx.fillRect(se.x + .25, se.y + .25, .5, .5); ctx.strokeRect(se.x + .25, se.y + .25, .5, .5);
       if (this.detail) {
-        ctx.fillStyle = "#cfd8e6"; ctx.font = ".42px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "top";
-        ctx.fillText(`${se.id}${se.src === "real" ? " (réel)" : ""}`, se.x + .5, se.y + .9);
+        ctx.fillStyle = T["map-ink-2"]; ctx.font = `600 .42px ${FONT_COND}`; ctx.textAlign = "center"; ctx.textBaseline = "top";
+        ctx.fillText(`${se.id}${se.src === "real" ? " (réel)" : ""}`, se.x + .5, se.y + .85);
       }
     }
   }
 
-  _drawVictims(ctx, s, t) {
-    for (const v of s.victims || []) {
-      if (!v.found) continue;
-      const col = STATUS_COLOR[v.status] || "#ffffff";
-      const p = 0.5 + 0.5 * Math.sin(t * 4 + v.x);
-      ctx.fillStyle = col.length === 7 ? col + "33" : col;
-      ctx.beginPath(); ctx.arc(v.x + .5, v.y + .5, .7 + .25 * p, 0, 7); ctx.fill();
-      ctx.fillStyle = col; ctx.strokeStyle = "#05070b"; ctx.lineWidth = .08;
-      ctx.beginPath(); ctx.arc(v.x + .5, v.y + .5, .38, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = "#05070b"; ctx.font = "bold .42px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(v.id, v.x + .5, v.y + .52);
-      if (v.status !== "walking") {      // blessé, ne répond pas, ou état inconnu : secourir en premier
-        ctx.fillStyle = "#fff"; ctx.font = "bold .5px system-ui";
-        ctx.fillText("!", v.x + 1.05, v.y + .05);
+  // forme de statut (lisible aussi en niveaux de gris) : rond plein = marche,
+  // triangle = blessé, rond vide = ne répond pas, losange vide = état inconnu
+  _shape(ctx, status, x, y, r, v) {
+    const T = this.T;
+    ctx.lineWidth = 2.2 / v.s;
+    ctx.beginPath();
+    if (status === "injured") { ctx.moveTo(x, y - r * 1.1); ctx.lineTo(x + r, y + r * .75); ctx.lineTo(x - r, y + r * .75); ctx.closePath(); }
+    else if (status === "walking" || status === "no_answer") ctx.arc(x, y, r * .85, 0, 7);
+    else { ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); }
+    const col = status === "walking" ? T["evac"] : status === "injured" ? T["alarm"] : status === "no_answer" ? T["amber"] : T["map-ink"];
+    ctx.save();
+    ctx.strokeStyle = T["map-halo"]; ctx.lineWidth = 5 / v.s; ctx.stroke();
+    ctx.restore();
+    if (status === "walking" || status === "injured") { ctx.fillStyle = col; ctx.fill(); }
+    else { ctx.fillStyle = T["map-halo"]; ctx.fill(); ctx.strokeStyle = col; ctx.stroke(); }
+  }
+
+  _drawVictims(ctx, s, now, v) {
+    const T = this.T;
+    // victimes déjà connues à l'ouverture de la page : pas d'impulsion (seules les nouvelles en ont une)
+    if (!this._victimInit) {
+      for (const vi of s.victims || []) if (vi.found) this._victimSeen.set(vi.id, -1e9);
+      this._victimInit = true;
+    }
+    for (const vi of s.victims || []) {
+      if (!vi.found) continue;
+      if (!this._victimSeen.has(vi.id)) this._victimSeen.set(vi.id, now);
+      const x = vi.x + .5, y = vi.y + .5;
+      const age = (now - this._victimSeen.get(vi.id)) / 1000;
+      if (!REDUCED_MOTION && age < 1.4) {            // une impulsion à l'apparition
+        ctx.strokeStyle = withAlpha(T["map-ink"], 0.9 * (1 - age / 1.4)); ctx.lineWidth = 2 / v.s;
+        ctx.beginPath(); ctx.arc(x, y, .5 + age * 2.2, 0, 7); ctx.stroke();
       }
+      this._shape(ctx, vi.status, x, y, .5, v);
+      ctx.font = `700 .62px ${FONT_COND}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      ctx.lineWidth = 3 / v.s; ctx.strokeStyle = T["map-halo"]; ctx.strokeText(vi.id, x + .7, y);
+      ctx.fillStyle = T["map-ink"]; ctx.fillText(vi.id, x + .7, y);
     }
   }
 
-  _drawDrone(ctx, s, t, now) {
-    const d = s.drone;
+  _drawDrone(ctx, s, now, v) {
+    const d = s.drone, T = this.T;
     if (!d || d.state === "OUT" && !this.drone) return;
     const tx = d.x + .5, ty = d.y + .5;
     if (!this.drone) this.drone = { x: tx, y: ty };
-    // poursuite exponentielle : mouvement fluide entre deux états reçus
     const dt = Math.min(0.1, (now - (this._lastNow || now)) / 1000); this._lastNow = now;
-    const k = 1 - Math.exp(-dt * 7);
+    const k = REDUCED_MOTION ? 1 : 1 - Math.exp(-dt * 7);
     const dx = tx - this.drone.x, dy = ty - this.drone.y;
     if (Math.hypot(dx, dy) > 6) { this.drone.x = tx; this.drone.y = ty; }
     this.drone.x += dx * k; this.drone.y += dy * k;
     if (Math.hypot(dx, dy) > .05) {
-      const target = Math.atan2(dy, dx);
-      let diff = target - this.droneHeading;
+      let diff = Math.atan2(dy, dx) - this.droneHeading;
       while (diff > Math.PI) diff -= 2 * Math.PI;
       while (diff < -Math.PI) diff += 2 * Math.PI;
       this.droneHeading += diff * k;
@@ -463,70 +644,64 @@ class MapView {
     const x = this.drone.x, y = this.drone.y;
     if (d.state === "OUT") return;
 
-    // anneau de scan (portée thermique 3 m) + balayage radar
-    const R = 3.2;
-    const ph = (t * 0.8) % 1;
-    ctx.strokeStyle = `rgba(61,165,255,${0.5 * (1 - ph)})`; ctx.lineWidth = .07;
-    ctx.beginPath(); ctx.arc(x, y, R * ph, 0, 7); ctx.stroke();
-    ctx.strokeStyle = "rgba(61,165,255,.25)"; ctx.setLineDash([.2, .2]);
-    ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.stroke(); ctx.setLineDash([]);
-    const a = (t * 2.4) % (Math.PI * 2);
-    if (ctx.createConicGradient) {
-      const cg = ctx.createConicGradient(a, x, y);
-      cg.addColorStop(0, "rgba(61,165,255,.35)");
-      cg.addColorStop(0.12, "rgba(61,165,255,0)");
-      cg.addColorStop(1, "rgba(61,165,255,0)");
-      ctx.fillStyle = cg;
-      ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill();
-    }
+    // portée de la caméra thermique (3 m), tracé fixe
+    ctx.strokeStyle = withAlpha(T["map-ink"], .3); ctx.lineWidth = 1 / v.s; ctx.setLineDash([3 / v.s, 3 / v.s]);
+    ctx.beginPath(); ctx.arc(x, y, 3.2, 0, 7); ctx.stroke(); ctx.setLineDash([]);
 
-    // drone : quadricoptère vu de dessus, couleur selon la température
-    const temp = d.temp || 20;
-    const hot = U.clamp((temp - 30) / 30, 0, 1);
-    const col = `rgb(${Math.round(61 + 194 * hot)},${Math.round(165 - 100 * hot)},${Math.round(255 - 200 * hot)})`;
+    // quadricoptère vu de dessus (notre équipement : couleur d'encre, pas une couleur de danger)
     ctx.save();
     ctx.translate(x, y); ctx.rotate(this.droneHeading);
-    ctx.strokeStyle = col; ctx.lineWidth = .1;
-    ctx.beginPath(); ctx.moveTo(-.38, -.38); ctx.lineTo(.38, .38); ctx.moveTo(.38, -.38); ctx.lineTo(-.38, .38); ctx.stroke();
-    for (const [rx, ry] of [[-.38, -.38], [.38, -.38], [-.38, .38], [.38, .38]]) {
-      ctx.fillStyle = "rgba(200,230,255,.25)";
-      ctx.beginPath(); ctx.arc(rx, ry, .2, 0, 7); ctx.fill();
-      ctx.strokeStyle = "rgba(230,240,255,.8)"; ctx.lineWidth = .04;
-      const sp = t * 30 + rx * 10;
-      ctx.beginPath(); ctx.moveTo(rx + Math.cos(sp) * .2, ry + Math.sin(sp) * .2);
-      ctx.lineTo(rx - Math.cos(sp) * .2, ry - Math.sin(sp) * .2); ctx.stroke();
+    ctx.strokeStyle = T["map-halo"]; ctx.lineWidth = 5 / v.s;
+    ctx.beginPath(); ctx.moveTo(-.4, -.4); ctx.lineTo(.4, .4); ctx.moveTo(.4, -.4); ctx.lineTo(-.4, .4); ctx.stroke();
+    ctx.strokeStyle = T["map-ink"]; ctx.lineWidth = 2 / v.s; ctx.stroke();
+    for (const [rx, ry] of [[-.4, -.4], [.4, -.4], [-.4, .4], [.4, .4]]) {
+      ctx.fillStyle = T["map-halo"]; ctx.beginPath(); ctx.arc(rx, ry, .2, 0, 7); ctx.fill();
+      ctx.strokeStyle = T["map-ink"]; ctx.lineWidth = 1.5 / v.s; ctx.stroke();
     }
-    ctx.fillStyle = col;
-    ctx.beginPath(); ctx.moveTo(.3, 0); ctx.lineTo(-.15, -.18); ctx.lineTo(-.15, .18); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = T["map-ink"];
+    ctx.beginPath(); ctx.moveTo(.34, 0); ctx.lineTo(-.14, -.2); ctx.lineTo(-.14, .2); ctx.closePath(); ctx.fill();
     ctx.restore();
-
-    // étiquette température
-    const label = `${Math.round(temp)}°C${d.state === "RETURNING" ? " ↩" : ""}`;
-    ctx.font = "bold .5px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    const w = ctx.measureText(label).width + .3;
-    ctx.fillStyle = temp >= 60 ? "rgba(180,30,20,.92)" : "rgba(8,20,40,.88)";
-    ctx.fillRect(x - w / 2, y - 1.35, w, .62);
-    ctx.fillStyle = "#fff"; ctx.fillText(label, x, y - .78);
+    this._droneLabel = { x, y, d };     // dessinée en dernier, au-dessus des étiquettes de zone
   }
 
-  // étiquettes "⚠ CO 320 ppm" sur la carte globale (1 par zone en alerte)
-  _drawZoneChips(ctx, s, t, v) {
+  // étiquette de température du drone, liseré aux couleurs de la palette thermique
+  _drawDroneLabel(ctx, v) {
+    const L = this._droneLabel; this._droneLabel = null;
+    if (!L) return;
+    const { x, y, d } = L, T = this.T;
+    const temp = d.temp || 20;
+    const [r, g, b] = this.infernoAt(U.clamp((temp - 20) / 60, 0, 1) * .85 + .15);
+    const label = `${Math.round(temp)} °C${d.state === "RETURNING" ? " retour" : ""}`;
+    ctx.save();
+    ctx.scale(1 / v.s, 1 / v.s);
+    ctx.font = `700 12px ${FONT_COND}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const w = ctx.measureText(label).width + 12, px = x * v.s, py = (y - 1.15) * v.s;
+    ctx.fillStyle = temp >= 60 ? T["alarm-fill"] : T["map-tag-bg"];
+    ctx.fillRect(px - w / 2, py - 9, w, 18);
+    ctx.fillStyle = `rgb(${r},${g},${b})`; ctx.fillRect(px - w / 2, py + 7, w, 2);
+    ctx.fillStyle = temp >= 60 ? T["on-accent"] : T["map-tag-tx"]; ctx.fillText(label, px, py);
+    ctx.restore();
+  }
+
+  // valeur la plus grave de chaque zone en alerte, posée là où elle a été mesurée
+  _drawZoneChips(ctx, s, v) {
+    const T = this.T;
     ctx.save();
     ctx.scale(1 / v.s, 1 / v.s);
     for (const [zid, z] of Object.entries(s.zones || {})) {
       if (z.level === "NORMAL" || !z.top || !z.top.length) continue;
       const r = z.top[0];
       const val = Tween.get("chip" + zid, r.value);
-      const txt = `${z.level === "DANGER" ? "⚠" : "•"} ${r.label} ${U.fmt(val)} ${r.unit}${r.trend === "up" ? " ▲" : ""}`;
-      const px = (r.x + .5) * v.s, py = (r.y - .3) * v.s;
-      this._chip(ctx, txt, px, py, z.level === "DANGER" ? "#b5241a" : "#a35f05", 12);
+      const txt = `${r.label} ${U.fmt(val)} ${r.unit}${r.trend === "up" ? " ▲" : ""}`;
+      const danger = z.level === "DANGER";
+      this._chip(ctx, txt, (r.x + .5) * v.s, (r.y - .35) * v.s, danger ? T["alarm-fill"] : T["chip-warn-bg"],
+        danger ? T["on-accent"] : T["chip-warn-tx"], 13);
     }
     ctx.restore();
   }
 
-  // loupe : valeurs mesurées placées à l'endroit de la mesure + noms d'équipements
-  _drawDetailLabels(ctx, s, t, v) {
-    const z = s.zones && s.zones[this.focusZone];
+  _drawDetailLabels(ctx, s, v) {
+    const z = s.zones && s.zones[this.focusZone], T = this.T;
     ctx.save();
     ctx.scale(1 / v.s, 1 / v.s);
     const zr = this.zoneById[this.focusZone];
@@ -535,37 +710,88 @@ class MapView {
         const [x0, y0, x1, y1] = zr.rect;
         if (e.x < x0 - 1 || e.x > x1 + 1 || e.y < y0 - 1 || e.y > y1 + 1) continue;
       }
-      ctx.font = "11px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "top";
-      ctx.fillStyle = "rgba(230,237,247,.85)";
-      ctx.fillText(e.label, (e.x + .5) * v.s, (e.y + 1) * v.s + 1);
+      ctx.font = `500 11px ${FONT_COND}`; ctx.textAlign = "center"; ctx.textBaseline = "top";
+      // étiquette gardée dans le cadre de la vue détaillée
+      const lw = ctx.measureText(e.label).width, ox = this._ox || 0;
+      const lx = U.clamp((e.x + .5) * v.s, lw / 2 + 3 - ox, this.cssW - lw / 2 - 3 - ox), ly = (e.y + 1) * v.s + 2;
+      ctx.lineWidth = 3; ctx.strokeStyle = T["map-halo"]; ctx.strokeText(e.label, lx, ly);
+      ctx.fillStyle = T["map-ink"]; ctx.fillText(e.label, lx, ly);
     }
     if (z && z.top) {
       z.top.forEach((r, i) => {
         const val = Tween.get("lbl" + this.focusZone + r.type, r.value);
-        const txt = `${r.icon} ${U.fmt(val)} ${r.unit}${r.trend === "up" ? " ▲" : r.trend === "down" ? " ▼" : ""}`;
+        const txt = `${r.label} ${U.fmt(val)} ${r.unit}${r.trend === "up" ? " ▲" : r.trend === "down" ? " ▼" : ""}`;
         const px = (r.x + .5) * v.s, py = (r.y + .5) * v.s;
-        // petite ligne de rappel vers la mesure
         const ly = py - 26 - i * 4;
-        ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 1;
+        ctx.strokeStyle = withAlpha(T["map-ink"], .6); ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, ly + 9); ctx.stroke();
-        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(px, py, 2.5, 0, 7); ctx.fill();
-        this._chip(ctx, txt, px, ly, r.score >= 1 ? "#b5241a" : "#a35f05", 13);
+        ctx.fillStyle = T["map-ink"]; ctx.beginPath(); ctx.arc(px, py, 2.5, 0, 7); ctx.fill();
+        const hot = r.score >= 1;
+        this._chip(ctx, txt, px, ly, hot ? T["alarm-fill"] : T["chip-warn-bg"], hot ? T["on-accent"] : T["chip-warn-tx"], 13);
       });
     }
     ctx.restore();
   }
 
-  _chip(ctx, txt, px, py, bg, size) {
-    ctx.font = `700 ${size}px system-ui`;
+  _chip(ctx, txt, px, py, bg, fg, size) {
+    ctx.font = `700 ${size}px ${FONT_COND}`;
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const w = ctx.measureText(txt).width + 12, h = size + 8;
-    const ox = this._ox || 0;           // on est dans le repère translaté de la carte
-    let x = U.clamp(px, w / 2 + 2 - ox, this.cssW - w / 2 - 2 - ox);
+    const ox = this._ox || 0;
+    const x = U.clamp(px, w / 2 + 2 - ox, this.cssW - w / 2 - 2 - ox);
     ctx.fillStyle = bg;
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(x - w / 2, py - h / 2, w, h, 5); else ctx.rect(x - w / 2, py - h / 2, w, h);
-    ctx.fill();
-    ctx.fillStyle = "#fff";
+    ctx.fillRect(x - w / 2, py - h / 2, w, h);
+    ctx.fillStyle = fg;
     ctx.fillText(txt, x, py + 1);
+  }
+
+  // échelle 5 m et rose des vents (vue globale seulement), en coordonnées écran
+  _overlays(ctx, s, v) {
+    const T = this.T;
+    ctx.save();
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    // échelle graphique
+    const L = 5 * v.s, x0 = Math.max(16, v.ox), y0 = this.cssH - 16;
+    ctx.strokeStyle = T["map-ink-2"]; ctx.fillStyle = T["map-ink-2"]; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + L, y0);
+    for (const k of [0, .5, 1]) { ctx.moveTo(x0 + L * k, y0 - (k === .5 ? 4 : 6)); ctx.lineTo(x0 + L * k, y0); }
+    ctx.stroke();
+    ctx.fillRect(x0, y0 - 3, L / 2, 3);
+    ctx.font = `600 12px ${FONT_COND}`; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
+    ctx.fillText("5 m", x0 + L + 6, y0 + 2);
+
+    // rose des vents : nord en haut, flèche = direction VERS laquelle souffle le vent
+    const R = 27, right = v.ox + this.W * v.s, margin = this.cssW - right;
+    const inMargin = margin >= 2 * R + 14;
+    const cx = inMargin ? right + margin / 2 : this.cssW - R - 14;
+    const cy = inMargin ? v.oy + R + 14 : R + 16;
+    ctx.fillStyle = withAlpha(T["map-bg"], .85); ctx.strokeStyle = T["map-ink-2"]; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill(); ctx.stroke();
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4, l = i % 2 ? 3 : 6;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.sin(a) * (R - l), cy - Math.cos(a) * (R - l));
+      ctx.lineTo(cx + Math.sin(a) * R, cy - Math.cos(a) * R); ctx.stroke();
+    }
+    ctx.fillStyle = T["map-ink"]; ctx.font = `700 12px ${FONT_COND}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.fillText("N", cx, cy - R - 2);
+    const w = s && s.wind;
+    ctx.font = `600 12px ${FONT_COND}`; ctx.textBaseline = "top"; ctx.fillStyle = T["map-ink-2"];
+    if (w && w.kmh > 0) {
+      const a = (w.deg || 0) * Math.PI / 180, ux = Math.sin(a), uy = -Math.cos(a);
+      const L2 = R - 7;
+      ctx.strokeStyle = T["map-ink"]; ctx.fillStyle = T["map-ink"]; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx - ux * L2, cy - uy * L2); ctx.lineTo(cx + ux * (L2 - 6), cy + uy * (L2 - 6)); ctx.stroke();
+      const hx = cx + ux * L2, hy = cy + uy * L2, aa = Math.atan2(uy, ux);
+      ctx.beginPath(); ctx.moveTo(hx, hy);
+      ctx.lineTo(hx - 9 * Math.cos(aa - .45), hy - 9 * Math.sin(aa - .45));
+      ctx.lineTo(hx - 9 * Math.cos(aa + .45), hy - 9 * Math.sin(aa + .45)); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = T["map-ink-2"];
+      ctx.fillText(`Vent ${Math.round(w.kmh)} km/h`, cx, cy + R + 6);
+      ctx.fillText(`vers ${WIND_TO[Math.round(((w.deg % 360) + 360) % 360 / 45) % 8]}`, cx, cy + R + 21);
+    } else {
+      ctx.fillText(w ? "Vent nul" : "Vent non relevé", cx, cy + R + 6);
+    }
+    ctx.restore();
   }
 }

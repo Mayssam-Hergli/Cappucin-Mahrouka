@@ -14,6 +14,7 @@ import argparse
 import os
 
 import numpy as np
+from matplotlib.patches import Rectangle
 
 from . import Sim
 from .grid import DOOR, ELEC, EXIT, FLOOR, FUEL, GAS, PAPER, WALL
@@ -49,6 +50,7 @@ class Scenario:
         self.launch_at = args.launch_at
         self.auto_voice = not args.no_voice
         self.n = 0
+        self.trail = []
         self._answer_at = {}
 
     def step(self):
@@ -56,6 +58,8 @@ class Scenario:
             self.sim.launch_drone(self.entry)
         found = self.sim.step()
         self.n += 1
+        if self.sim.drone is not None:
+            self.trail.append((self.sim.drone.x, self.sim.drone.y))
         if self.auto_voice:
             for vid in found:
                 self._answer_at[vid] = self.n + ANSWER_DELAY
@@ -75,7 +79,13 @@ def _rgb(hex_colour):
     return [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
 
 
-def render(ax, sim):
+def render(ax, sim, clean=False, forecast=None, trail=None, title=None):
+    """Draw the simulation on a matplotlib axis.
+
+    clean: no axis ticks and no hidden victims (for slides); forecast: cells to
+    outline as "fire in a few minutes"; trail: the drone's past positions;
+    title: replaces the automatic status line.
+    """
     f = sim.factory
     st = sim.state()
     hz = sim.hazards
@@ -99,9 +109,23 @@ def render(ax, sim):
 
     ax.clear()
     ax.imshow(img, interpolation="nearest")
-    ax.set_xticks(range(0, f.w, 5))
-    ax.set_yticks(range(0, f.h, 5))
-    ax.tick_params(labelsize=7)
+    if clean:
+        ax.set_xticks([])
+        ax.set_yticks([])
+    else:
+        ax.set_xticks(range(0, f.w, 5))
+        ax.set_yticks(range(0, f.h, 5))
+        ax.tick_params(labelsize=7)
+
+    if forecast:                                        # where the fire will be: dashed outline
+        now = {tuple(c) for c in st["fire"]}
+        for x, y in forecast:
+            if (x, y) not in now:
+                ax.add_patch(Rectangle((x - 0.5, y - 0.5), 1, 1, fill=False, edgecolor="#e8250c",
+                                       linestyle=(0, (2, 2)), linewidth=0.9))
+    if trail and len(trail) > 1:                        # where the drone has flown
+        xs, ys = zip(*trail)
+        ax.plot(xs, ys, color="#1c7ed6", linewidth=0.9, alpha=0.6)
 
     for z in f.zones:
         x1, y1, x2, y2 = z["rect"]
@@ -121,30 +145,26 @@ def render(ax, sim):
         xs, ys = zip(*plans["entry"]["path"])
         ax.plot(xs, ys, color="#1c7ed6", linewidth=2, linestyle="--")
     for line in plans["extinguish"]:
-        cells = [c for c in st["fire"] if f.zone_at(*c) == line["zone"]]
-        if cells:
-            cx = sum(c[0] for c in cells) / len(cells)
-            cy = sum(c[1] for c in cells) / len(cells)
-            ax.text(cx, cy, f"{line['order']}: {line['agent']} from {line['attack_from']}", ha="center",
-                    va="center", fontsize=7, weight="bold", color="white",
-                    bbox=dict(boxstyle="round,pad=0.2", fc="#c92a2a", ec="none"))
+        ax.text(line["at"][0], line["at"][1], f"{line['order']}: {line['agent']} from {line['attack_from']}",
+                ha="center", va="center", fontsize=7, weight="bold", color="white",
+                bbox=dict(boxstyle="round,pad=0.2", fc="#c92a2a", ec="none"))
 
     for v in st["victims"]:
         if v["found"]:
             ax.plot(v["x"], v["y"], marker="o", color=VICTIM_COLOURS.get(v["status"], "#ff00aa"),
                     markersize=7, markeredgecolor="black")
             ax.text(v["x"] + 0.6, v["y"] - 0.6, v["id"], fontsize=6.5, weight="bold")
-        else:
+        elif not clean:     # hidden victims: shown only when debugging
             ax.plot(v["x"], v["y"], marker="o", markerfacecolor="none", markeredgecolor="#888888", markersize=5)
 
-    title = f"t = {st['t']:.0f} s   fire {len(st['fire'])}   wind {st['wind']['kmh']:.0f} km/h toward {st['wind']['deg']:.0f}°"
+    auto = f"t = {st['t']:.0f} s   fire {len(st['fire'])}   wind {st['wind']['kmh']:.0f} km/h toward {st['wind']['deg']:.0f}°"
     if st["drone"]:
         d = st["drone"]
         ax.plot(d["x"], d["y"], marker="D", color="#1c7ed6", markersize=7, markeredgecolor="white")
-        title += f"   drone {d['state']} {d['temp']:.0f} °C"
+        auto += f"   drone {d['state']} {d['temp']:.0f} °C"
     if plans["entry"]["door"]:
-        title += f"   entry {plans['entry']['door']}"
-    ax.set_title(title, fontsize=8)
+        auto += f"   entry {plans['entry']['door']}"
+    ax.set_title(title or auto, fontsize=10 if title else 8, weight="bold" if title else "normal")
 
 
 def main():

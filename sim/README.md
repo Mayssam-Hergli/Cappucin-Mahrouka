@@ -15,6 +15,7 @@ A pure Python module with no web code and no dependency outside the standard lib
 | `drone.py` | The virtual drone: exploration, 3-cell thermal range, talking hover, temperature, 60 °C return |
 | `plans.py` | Evacuation, entry and extinguishing plans |
 | `viewer.py` | A matplotlib viewer to run the whole scenario without the server |
+| `figures.py` | Writes the slide images to `docs/simulation/` (`python -m sim.figures`) |
 
 ## Interface
 

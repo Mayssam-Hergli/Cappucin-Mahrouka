@@ -38,6 +38,12 @@
   <section class="map-wrap" id="mapWrap" aria-label="Plan d'intervention">
     <div class="banner" id="banner" role="status"></div>
     <canvas id="map"></canvas>
+    <div class="map3d" id="map3d" hidden>
+      <div class="m3-tools">
+        <button class="m3-btn" id="m3Overview" type="button" title="Revenir à la vue d'ensemble"><svg class="ic" aria-hidden="true"><use href="#i-locate"></use></svg>Vue d'ensemble</button>
+      </div>
+      <div class="m3-hint">Glisser : tourner · Clic droit : déplacer · Molette : zoom · Clic : zone ou victime</div>
+    </div>
     <div class="tooltip" id="tooltip"></div>
 
     <div class="loupe" id="loupe" aria-hidden="true">
@@ -59,6 +65,10 @@
     </div>
 
     <div class="map-bar">
+      <div class="viewseg" role="group" aria-label="Type de vue (touche V)">
+        <button type="button" data-view="2d" aria-pressed="true" title="Plan 2D">2D</button>
+        <button type="button" data-view="3d" aria-pressed="false" title="Vue 3D (touche V)">3D</button>
+      </div>
       <div class="layers" id="layers" role="group" aria-label="Calques de la carte">
         <label title="Feu"><input type="checkbox" data-l="fire" checked aria-label="Feu"><svg class="ic" aria-hidden="true"><use href="#i-fire"></use></svg></label>
         <label title="Fumée"><input type="checkbox" data-l="smoke" checked aria-label="Fumée"><svg class="ic" aria-hidden="true"><use href="#i-smoke"></use></svg></label>
@@ -139,5 +149,9 @@
 <script src="/static/js/loupe.js"></script>
 <script src="/static/js/panel.js"></script>
 <script src="/static/js/app.js"></script>
+<script type="importmap">
+{ "imports": { "three": "/static/vendor/three.module.js", "three/addons/": "/static/vendor/addons/" } }
+</script>
+<script type="module" src="/static/js/map3d.js"></script>
 </body>
 </html>

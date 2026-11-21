@@ -77,7 +77,7 @@ let MainMap = null;
   let lastThermal = 0;
   function frame(now) {
     try {
-      MainMap.draw(now);
+      if (!(window.View3D && window.View3D.active)) MainMap.draw(now);   // la 3D a sa propre boucle
       Loupe.draw(now);
       Panel.frame(now);
       if (now - lastThermal > 70) { Thermal.draw(now); lastThermal = now; }

@@ -80,6 +80,7 @@ const Live = {
     return r.json().catch(() => ({}));
   },
 };
+window.Live = Live;   // lu par la vue 3D (module ES, map3d.js)
 
 // ---------------------------------------------------------------- outils
 const U = {

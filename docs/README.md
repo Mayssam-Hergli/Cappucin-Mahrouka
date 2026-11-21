@@ -8,3 +8,4 @@
 | Presentation | `slides.pdf` |
 | 1-minute explainer video | `video.mp4` (or a link) |
 | AI model report | see [`ai/REPORT.md`](../ai/REPORT.md) |
+| Simulation slide: images, text, speaker notes | [`simulation/`](simulation/SLIDE.md) |

@@ -27,7 +27,7 @@ sim.start_fire(x, y)                     # returns the cell actually used
 sim.set_wind(kmh, deg)
 sim.launch_drone("E2")
 sim.step()                               # returns the ids of victims found during this step
-sim.add_victim_here(conf)                # returns the victim id found or created
+sim.add_victim_here(conf)                # returns the id of a NEWLY found/created victim, else None
 sim.set_victim_status("V1", "walking")   # walking | injured | no_answer
 sim.state()
 

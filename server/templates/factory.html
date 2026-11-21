@@ -4,17 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Usine — Levée de doute</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
   :root { --bg:#f4f6f9; --card:#fff; --text:#18202b; --muted:#5d6b7e; --red:#c8373c; --green:#1e8f57; --line:#dde3ea; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 "IBM Plex Sans", system-ui, -apple-system, Roboto, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums; }
   .ic { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex: none; }
   header .ic { width: 26px; height: 26px; }
   button .ic { margin-right: .35rem; }
-  h1, header b, button { font-family: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; }
+  h1, header b, button { font-family: inherit; }
   :focus-visible { outline: 3px solid #18202b; outline-offset: 2px; }
   .dot { display: inline-block; width: .6em; height: .6em; border-radius: 50%; margin-right: .35em; background: var(--green); }
   .dot.WARNING { background: #e0a526; } .dot.ALARM { background: var(--red); }

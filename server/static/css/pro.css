@@ -1,0 +1,26 @@
+/* pro.css : surcouche "poste de commandement" chargée après app.css.
+   - une seule famille de polices (système), chiffres à chasse fixe partout ;
+   - étiquettes de gravité en capitales à la place des symboles ;
+   - styles des nouveaux modules (vue 3D, comptes à rebours, action immédiate, équipes).
+   Palette : uniquement les variables existantes (alarm, amber, evac, entry, gris). */
+
+:root {
+  --f-sys: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --f-cond: var(--f-sys);
+  --f-text: var(--f-sys);
+  --f-mono: var(--f-sys);
+}
+body, button, input, select { font-family: var(--f-sys); font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------- étiquettes de gravité */
+.rtag {
+  display: inline-block; flex: none; min-width: 5.6rem; margin-right: .5rem; padding: .1rem .4rem;
+  border-radius: 2px; font: 700 .66rem/1.35 var(--f-sys); letter-spacing: .06em; text-align: center;
+  text-transform: uppercase; border: 1px solid currentColor;
+}
+.rtag.sev4 { background: var(--alarm-fill); border-color: var(--alarm-fill); color: var(--on-accent); }
+.rtag.sev3 { color: var(--alarm-tx); }
+.rtag.sev2 { color: var(--amber-tx); }
+.rtag.sev1, .rtag.sev0 { color: var(--tx-2); }
+.risks li.tagged { display: flex; align-items: baseline; padding-left: 0; }
+.risks li.tagged::before { display: none; }

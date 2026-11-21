@@ -17,7 +17,7 @@ THRESH = {"temp": 60.0, "co": 50.0, "gas": 10.0, "smoke": 30.0, "mq": 1500.0}
 UNIT = {"temp": "°C", "co": "ppm", "gas": "% LIE", "smoke": "%", "o2": "%", "mq": ""}
 LABEL = {"temp": "Température", "co": "CO", "gas": "Gaz inflammable", "smoke": "Fumée",
          "o2": "Oxygène", "mq": "Capteur gaz/fumée"}
-ICON = {"temp": "🌡", "co": "☠", "gas": "🧪", "smoke": "💨", "o2": "🫁", "mq": "📡"}
+ICON = {"temp": "thermo", "co": "co", "gas": "gas", "smoke": "smoke", "o2": "o2", "mq": "sensor"}  # noms d'icônes (icons.js)
 
 UP = {"WARNING": 0.6, "DANGER": 1.0}      # seuils de montée
 DOWN = {"WARNING": 0.45, "DANGER": 0.8}   # seuils de descente (hystérésis)
@@ -60,7 +60,7 @@ class Analyzer:
         self.alert_seq = 0
         self.fire_started = False
         self.sensors = {}
-        self.z = {zid: {"level": "NORMAL", "readings": {}, "hist": {}, "hist_t": {}, "risks": []}
+        self.z = {zid: {"level": "NORMAL", "readings": {}, "hist": {}, "hist_t": {}, "risks": [], "risk_tags": []}
                   for zid in self.zone_name}
         self._dist = {}
         self._smoke = set()
@@ -246,30 +246,31 @@ class Analyzer:
             if self.fire_started and (known or z["level"] != "NORMAL"):
                 g = near_fire({"gas", "valve"})
                 if g:
-                    risks.append((3, f"🧪 {g[1]['label']} à {g[0]} m du feu : risque d'explosion, fermer la vanne gaz"))
+                    risks.append((3, "EXPLOSION", f"{g[1]['label']} à {g[0]} m du feu : risque d'explosion, fermer la vanne gaz"))
                 e = near_fire({"electric"})
                 if e:
-                    risks.append((2, f"⚡ {e[1]['label']} exposé au feu : couper le courant avant l'eau"))
+                    risks.append((2, "ÉLECTRIQUE", f"{e[1]['label']} exposé au feu : couper le courant avant l'eau"))
                 s = near_fire({"solvent"})
                 if s:
-                    risks.append((2, f"🛢 {s[1]['label']} à {s[0]} m : solvants, attaque à la mousse"))
+                    risks.append((2, "INFLAMMABLE", f"{s[1]['label']} à {s[0]} m : solvants, attaque à la mousse"))
                 m = near_fire({"metal"}, 2)
                 if m:
-                    risks.append((1, f"⚙ {m[1]['label']} : métal chaud, risque de brûlure / effondrement"))
+                    risks.append((1, "BRÛLURE", f"{m[1]['label']} : métal chaud, risque de brûlure / effondrement"))
             co = top.get("co")
             if co and co["value"] >= 200:
-                risks.append((3, f"☠ CO {round(co['value'])} ppm : mortel en quelques minutes"))
+                risks.append((3, "TOXIQUE", f"CO {round(co['value'])} ppm : mortel en quelques minutes"))
             o2 = top.get("o2")
             if o2 and o2["value"] < 19.5:
-                risks.append((2, f"🫁 O₂ {o2['value']} % : appareil respiratoire (ARI) obligatoire"))
+                risks.append((2, "ARI", f"O₂ {o2['value']} % : appareil respiratoire (ARI) obligatoire"))
             t = top.get("temp")
             if t and t["value"] >= 60:
-                risks.append((1, f"🌡 {round(t['value'])} °C : zone trop chaude pour le drone"))
+                risks.append((1, "CHALEUR", f"{round(t['value'])} °C : zone trop chaude pour le drone"))
             vz = [v["id"] for v in victims if self.g.zone_of(v["x"], v["y"]) == zid]
             if vz:
-                risks.append((4, f"👤 Victime(s) {', '.join(vz)} dans la zone"))
+                risks.append((4, "VICTIME", f"Victime(s) {', '.join(vz)} dans la zone"))
             risks.sort(key=lambda r: -r[0])
-            z["risks"] = [r[1] for r in risks[:4]]
+            z["risks"] = [r[2] for r in risks[:4]]
+            z["risk_tags"] = [{"tag": r[1], "sev": r[0]} for r in risks[:4]]  # en plus : libellé + gravité
 
     # ---------------------------------------------------------------- export
     def snapshot(self, now):
@@ -279,7 +280,8 @@ class Analyzer:
             cells = self.zone_cells[zid]
             scanned = sum(1 for c in cells if c in self.explored) / max(1, len(cells))
             zones[zid] = {"name": self.zone_name[zid], "level": z["level"],
-                          "scanned": round(scanned, 2), "top": top, "risks": z["risks"]}
+                          "scanned": round(scanned, 2), "top": top, "risks": z["risks"],
+                          "risk_tags": z.get("risk_tags", [])}
         return {
             "explored": [list(c) for c in self.explored],
             "trail": self.trail[-200:],

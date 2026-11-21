@@ -76,8 +76,8 @@ const Loupe = {
       li.classList.toggle("hot", r.score >= 1);
       const v = Tween.get("loupe" + this.zone + r.type, r.value);
       li.querySelector(".val b").textContent = U.fmt(v);
-      const arrow = r.trend === "up" ? '<span class="trend-up">▲ En hausse</span>' :
-        r.trend === "down" ? '<span class="trend-down">▼ En baisse</span>' : "<span>Stable</span>";
+      const arrow = r.trend === "up" ? '<span class="trend-up">EN HAUSSE</span>' :
+        r.trend === "down" ? '<span class="trend-down">EN BAISSE</span>' : "<span>STABLE</span>";
       const src = r.src === "drone" ? "Drone" : "Capteur " + r.src;
       const age = r.age + (Live.serverNow() - Live.s.server_time);
       li.querySelector(".meta").innerHTML = `${arrow}<span>${src}</span><span>${U.ago(age)}</span>`;
@@ -85,7 +85,12 @@ const Loupe = {
       this._spark(li.querySelector("canvas"), r.hist || [], r.score >= 1 ? tk.alarm : tk.amber);
     }
     const risks = document.getElementById("loupeRisks");
-    const html = (z.risks || []).map(r => `<li>${U.esc(stripEmoji(r))}</li>`).join("") || '<li class="none">Aucun risque identifié.</li>';
+    const tags = z.risk_tags || [];
+    const html = (z.risks || []).map((r, i) => {
+      const t = tags[i];
+      const tag = t ? `<span class="rtag sev${Math.min(4, t.sev)}">${U.esc(t.tag)}</span>` : "";
+      return `<li class="${t ? "tagged" : ""}">${tag}<span>${U.esc(stripEmoji(r))}</span></li>`;
+    }).join("") || '<li class="none">Aucun risque identifié.</li>';
     if (risks.innerHTML !== html) risks.innerHTML = html;
   },
 

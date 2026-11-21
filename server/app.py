@@ -382,7 +382,7 @@ def api_vision():
             hub.last_vision_add = now
             vid = hub.sim.add_victim_here(float(d.get("conf", 0)))
             hub.log(f"IA thermique : personne détectée (confiance {float(d.get('conf', 0)):.0%})"
-                    + (f" → {vid}" if vid else ""), "victim")
+                    + (f" : {vid}" if vid else ""), "victim")
     return jsonify(ok=True)
 
 
@@ -461,7 +461,7 @@ def api_demo(action):
             hub.heat_drone(12)
         elif action == "victim":
             vid = hub.sim.add_victim_here(0.9)
-            hub.log(f"(démo) personne ajoutée à la position du drone → {vid}", "info")
+            hub.log(f"(démo) personne ajoutée à la position du drone : {vid}", "info")
         elif action == "skip":
             hub.skip()
     return jsonify(ok=True, phase=hub.phase)

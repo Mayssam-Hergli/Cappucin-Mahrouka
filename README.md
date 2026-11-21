@@ -100,7 +100,7 @@ flowchart LR
 | Server and phase machine | `server/` | Python, Flask | n/a (it is the hub) |
 | Simulation and plans | `sim/` | Python | imported directly by the server |
 | Vision | `vision/` | Python, OpenCV, YOLOv8 | `POST /api/vision` |
-| Voice | `voice/` | Python, pyttsx3 | `GET /api/voice/next` |
+| Voice | `voice/` | Python, edge-tts neural voice (pyttsx3 offline fallback) | `GET /api/voice/next` |
 | AI model | `ai/` | Python, Ultralytics (Colab) | offline: training and evaluation only |
 
 ## Repository layout
@@ -298,7 +298,7 @@ Each `step()` is 2 simulated seconds. Stored goods burn for several minutes, so 
 
 - It enters by the chosen exit door and flies at **1 m/s**. It always heads for the unexplored cell that is cheapest to reach, so it avoids heat and never flies through flames.
 - Its thermal range is **3 cells**, and walls block the view. Every victim within that range is revealed and placed on the map.
-- When it finds a victim, it **hovers for 8 seconds** while it speaks to them (safest exit, help is on its way).
+- When it finds a victim, it **hovers for 20 seconds** while it speaks to them (safest exit, help is on its way).
 - Its temperature follows the radiant heat and the hot smoke around it. **At 60 °C** it switches to `RETURNING`, follows the safest path to the nearest exit, then becomes `OUT`. It also returns once the whole building is explored.
 
 ### Safest path (A*)

@@ -88,7 +88,9 @@ class Sim:
             if entry not in self.factory.exits:
                 raise ValueError(f"unknown exit {entry!r}, expected one of {sorted(self.factory.exits)}")
             self.drone = Drone(self.factory, entry, self.return_temp)
-            self.drone.scan(self.victims)
+            new = self.drone.scan(self.victims)
+            if new:                          # a victim visible from the door: talk to them first
+                self.drone.talking_to, self.drone._hover = new[0], 0
 
     def step(self):
         """Advance DT simulated seconds. Returns the ids of the victims found during this step."""

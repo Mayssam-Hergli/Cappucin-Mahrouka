@@ -8,8 +8,10 @@ matplotlib>=3.8
 opencv-python>=4.9
 ultralytics>=8.2
 
-# voice/
+# voice/ (neural voice online, pyttsx3 offline fallback)
 pyttsx3>=2.90
+edge-tts>=6.1
+miniaudio>=1.59
 
 # vision/, voice/, server/fake_sensor.py (HTTP clients)
 requests>=2.31

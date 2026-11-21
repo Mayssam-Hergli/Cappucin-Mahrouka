@@ -24,7 +24,7 @@ AMBIENT_TEMP = 25.0
 HEAT_GAIN = 40.0        # °C added to the target temperature per unit of radiant heat
 SMOKE_GAIN = 15.0       # °C added by dense hot smoke
 TEMP_RESPONSE = 0.15    # how fast the drone's temperature follows the target, per step
-HOVER_MAX_STEPS = 16    # 8 s of real time at one step every 0.5 s
+HOVER_MAX_STEPS = 40    # 20 s of real time at one step every 0.5 s: the voice message lasts up to ~17 s
 
 EXPLORING, RETURNING, OUT = "EXPLORING", "RETURNING", "OUT"
 
@@ -82,7 +82,10 @@ class Drone:
                 if self._at_exit():
                     self.state = OUT
                     break
-        found += self.scan(victims)
+        new = self.scan(victims)          # what it sees from its new position
+        found += new
+        if new and self.state == EXPLORING:  # stop and talk here too (before, only the first scan did)
+            self.talking_to, self._hover = new[0], 0
         return found
 
     def add_heat(self, delta):

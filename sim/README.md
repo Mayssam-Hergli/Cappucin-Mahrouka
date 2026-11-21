@@ -37,6 +37,8 @@ sim.guidance("V1")                       # {victim, exit, distance_m, doors, say
 sim.set_drone_temp(temp)                 # optional real reading for the drone
 ```
 
+Every 10 s (or when the situation changes) `step()` also tests the attack options 3 minutes ahead, which makes that step take up to about 250 ms instead of about 30. If the server's laptop struggles, set `sim.lookahead = False`: the plans then use the rule alone.
+
 `state()` and the helpers return only JSON-ready types (dicts, lists, numbers, strings), so the server can pass them straight to `jsonify`. Every method is thread-safe.
 
 See the [main README](../README.md#shared-contract) for the state format and the conventions.

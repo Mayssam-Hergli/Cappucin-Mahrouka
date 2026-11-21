@@ -40,6 +40,13 @@ GAS_THRESHOLD = 0.15        # density above which a cell is reported as gassy
 
 HEAT_RADIUS = 3
 
+# (dx, dy, factor, radiant, distance): the 8 neighbours, then the ring 2 cells away (radiant heat)
+FIRE_OFFSETS = tuple(
+    [(dx, dy, DIAGONAL_FACTOR if dx and dy else 1.0, False, math.hypot(dx, dy)) for dx, dy in N8]
+    + [(dx, dy, RADIANT_FACTOR, True, math.hypot(dx, dy))
+       for dx in range(-2, 3) for dy in range(-2, 3) if max(abs(dx), abs(dy)) == 2]
+)
+
 
 class Hazards:
     def __init__(self, factory, rng):
@@ -76,11 +83,19 @@ class Hazards:
 
     # --- simulation ----------------------------------------------------------
 
-    def step(self):
+    def step(self, smoke=True, heat=True):
+        """One step. Look-ahead runs that only need the fire skip smoke and heat to go faster."""
         self._spread_fire()
-        self._diffuse(self.smoke, self.burning.keys(), SMOKE_SOURCE, SMOKE_DIFFUSION, SMOKE_SUBSTEPS, SMOKE_DECAY)
+        if smoke:
+            self._diffuse(self.smoke, self.burning.keys(), SMOKE_SOURCE, SMOKE_DIFFUSION, SMOKE_SUBSTEPS, SMOKE_DECAY)
         self._diffuse(self.gas, self._gas_sources(), GAS_SOURCE, GAS_DIFFUSION, GAS_SUBSTEPS, GAS_DECAY)
-        self._compute_heat()
+        if heat:
+            self._compute_heat()
+
+    def extinguish(self, x, y):
+        """Knock down a burning cell (it cannot catch fire again)."""
+        if self.burning.pop((x, y), None) is not None:
+            self.burnt.add((x, y))
 
     def _spread_fire(self):
         f = self.f
@@ -89,7 +104,7 @@ class Hazards:
         not_ignited = {}    # cell -> probability that no burning cell ignites it this step
 
         for (x, y) in self.burning:
-            for dx, dy, factor, radiant in self._fire_offsets():
+            for dx, dy, factor, radiant, dist in FIRE_OFFSETS:
                 nx, ny = x + dx, y + dy
                 if not f.inside(nx, ny) or (nx, ny) in self.burning or (nx, ny) in self.burnt:
                     continue
@@ -103,7 +118,7 @@ class Hazards:
                 elif dx and dy and f.is_wall(x + dx, y) and f.is_wall(x, y + dy):
                     continue
                 p = MATERIALS[target][0] + GAS_IGNITION_BOOST * self.gas[ny][nx]
-                cos = (dx * wx + dy * wy) / math.hypot(dx, dy)
+                cos = (dx * wx + dy * wy) / dist
                 p *= max(0.2, 1 + WIND_EFFECT * strength * cos) * factor
                 p = min(p, 0.95)
                 not_ignited[(nx, ny)] = not_ignited.get((nx, ny), 1.0) * (1 - p)
@@ -118,15 +133,6 @@ class Hazards:
         for (x, y) in new:
             self.burning[(x, y)] = MATERIALS[f.cell(x, y)][1]
 
-    @staticmethod
-    def _fire_offsets():
-        for dx, dy in N8:
-            yield dx, dy, (DIAGONAL_FACTOR if dx and dy else 1.0), False
-        for dx in range(-2, 3):
-            for dy in range(-2, 3):
-                if max(abs(dx), abs(dy)) == 2:
-                    yield dx, dy, RADIANT_FACTOR, True
-
     def _gas_sources(self):
         sources = []
         for (x, y) in self.f.open_cells:
@@ -137,6 +143,9 @@ class Hazards:
         return sources
 
     def _diffuse(self, field, sources, amount, rate, substeps, decay):
+        sources = list(sources)
+        if not sources and not any(v > 1e-4 for row in field for v in row):
+            return      # nothing to spread
         for (x, y) in sources:
             field[y][x] = min(1.0, field[y][x] + amount)
         for _ in range(substeps):

@@ -208,8 +208,11 @@ NORMAL → ALERT → CHECKING → CONFIRMED (or FALSE_ALARM → NORMAL) → EN_R
   "plans": {
     "evacuation": [{"victim": "V1", "path": [[x, y], ...], "exit": "E3", "rescue_first": true}],
     "entry":      {"door": "E2", "path": [[x, y], ...]},
-    "extinguish": [{"zone": "Z4", "at": [35, 20], "fire_class": "C", "agent": "powder", "attack_from": "W",
-                    "first": ["close the gas valve GV1"], "order": 1}]
+    "extinguish": [{"zone": "Z3", "at": [23, 21], "fire_class": "A", "agent": "water", "attack_from": "E",
+                    "first": [], "order": 1,
+                    "lookahead": {"minutes": 3, "sides_tested": ["S", "E"],
+                                  "fire_near_victims": {"no_action": 5, "with_attack": 0},
+                                  "fire_m2": {"no_action": 10, "with_attack": 0}}}]
   },
   "events": ["12:03 ALARM zone Z2 (gas)", "..."]
 }
@@ -257,6 +260,7 @@ See [`sim/README.md`](sim/README.md#how-the-server-uses-it) for how each phase c
 | Attack side | `attack_from` is one of `N`, `S`, `E`, `W`. |
 | Actions first | `first` lists what to do before attacking (close a gas valve, cut the power). It can be empty. |
 | Order label | `at` is a burning cell near the middle of that zone's fire, where the dashboard draws the order number. |
+| Look-ahead | `lookahead` compares doing nothing with the chosen attack, 3 minutes ahead: burning m² near the victims and their paths, and burning m² in total. It is `null` until the first test has run. |
 | Fire class | `fire_class` is `A`, `B`, `C` or `electrical`. |
 
 ### Factory map (`sim/factory.json`)
@@ -312,7 +316,11 @@ burning cells are blocked
 
 The plans are recomputed at every step, so they follow the fire live.
 
-**Planned improvement:** simulate each attack option a few minutes ahead on a copy of the grid, and keep the one that leaves the least fire near the victims.
+### Testing the attack options (look-ahead)
+
+The rule above says which sides are allowed. The simulator then **tests them**: on copies of the grid, it runs the fire 3 minutes ahead with no attack, and with one attack team from each allowed side, knocking down 0.25 m² per second from that side. It keeps the side that leaves the least fire near the victims and their evacuation paths, then the least fire overall. The test runs again every 10 seconds, or as soon as a new zone catches fire, a victim is found or answers, or the wind changes.
+
+Example (fire on the cardboard pallets next to victim V4): with no action, 5 m² of fire reach V4's surroundings within 3 minutes; with the chosen attack from the east, none do.
 
 ## The AI model
 

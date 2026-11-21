@@ -61,6 +61,10 @@ class Sim:
                         for v in self.factory.victims]
         self.drone = None
         self.plans = plans.empty()
+        self.lookahead = True           # test each attack option ahead (False to save CPU)
+        self._tested = {}               # latest result of plans.test_attacks()
+        self._tested_key = None
+        self._steps_since_test = 0
         self._lock = threading.RLock()
 
     # --- contract interface --------------------------------------------------
@@ -94,9 +98,17 @@ class Sim:
             if self.drone is not None:
                 found = self.drone.step(self.hazards, self.victims)
             if self.fire_started:
-                self.plans = plans.compute(self.factory, self.hazards, self.victims)
+                self.plans = plans.compute(self.factory, self.hazards, self.victims, self._tested)
             self.t += DT
-            return found
+            job = self._lookahead_job()
+
+        if job is not None:
+            # Test the attack options on copies, outside the lock: state() stays responsive.
+            tested = plans.test_attacks(self.factory, *job, DT)
+            with self._lock:
+                self._tested = tested
+                self.plans = plans.compute(self.factory, self.hazards, self.victims, self._tested)
+        return found
 
     def add_victim_here(self, conf):
         """The webcam saw a person at the drone's position. Returns the victim id, or None."""
@@ -155,7 +167,7 @@ class Sim:
         with self._lock:
             hz = copy.deepcopy(self.hazards, {id(self.factory): self.factory})
         for _ in range(int(minutes * 60 / DT)):
-            hz.step()
+            hz.step(heat=False)
         return {
             "minutes": minutes,
             "fire": [[x, y] for (x, y) in hz.burning],
@@ -209,6 +221,25 @@ class Sim:
                 self.drone.external_temp = None if temp is None else float(temp)
 
     # --- internals -----------------------------------------------------------
+
+    def _lookahead_job(self):
+        """A private snapshot for test_attacks(), when a new test is due; otherwise None.
+        A test is due every LOOKAHEAD_EVERY steps, or at once if the burning zones,
+        the victims found, their answers or the wind change."""
+        if not (self.lookahead and self.fire_started and self.hazards.burning):
+            return None
+        hz = self.hazards
+        key = (frozenset(filter(None, (self.factory.zone_at(*c) for c in hz.burning))),
+               tuple((v["id"], v["status"]) for v in self.victims if v["found"]),
+               hz.wind_kmh, hz.wind_deg)
+        self._steps_since_test += 1
+        if key == self._tested_key and self._steps_since_test < plans.LOOKAHEAD_EVERY:
+            return None
+        self._tested_key = key
+        self._steps_since_test = 0
+        return (copy.deepcopy(hz, {id(self.factory): self.factory}),
+                copy.deepcopy(self.victims),
+                copy.deepcopy(self.plans["evacuation"]))
 
     def _victim(self, victim_id):
         for v in self.victims:

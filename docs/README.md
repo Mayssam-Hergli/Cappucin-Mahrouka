@@ -9,3 +9,4 @@
 | 1-minute explainer video | `video.mp4` (or a link) |
 | AI model report | see [`ai/REPORT.md`](../ai/REPORT.md) |
 | Simulation slide: images, text, speaker notes | [`simulation/`](simulation/SLIDE.md) |
+| AI slides (6 and 7): images, text, speaker notes, jury answers | [`ai/`](ai/SLIDE.md) |

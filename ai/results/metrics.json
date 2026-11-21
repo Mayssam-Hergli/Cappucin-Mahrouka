@@ -1,0 +1,56 @@
+{
+  "dataset": {
+    "name": "Voxel51/Thermal-Person-Detector (Hugging Face)",
+    "images": 8778,
+    "person_boxes": 18695,
+    "split": {
+      "train": 6145,
+      "val": 1316,
+      "test": 1317
+    },
+    "split_method": "random 70/15/15, seed 42"
+  },
+  "training": {
+    "base_model": "yolov8n.pt (COCO pretrained)",
+    "epochs_max": 40,
+    "patience": 10,
+    "imgsz": 640,
+    "batch": 16,
+    "seed": 42
+  },
+  "test_our_model": {
+    "precision": 0.9206,
+    "recall": 0.8538,
+    "mAP50": 0.9379,
+    "mAP50_95": 0.6718,
+    "speed_ms_per_image_gpu": {
+      "preprocess": 1.55,
+      "inference": 4.2,
+      "loss": 0.0,
+      "postprocess": 1.59
+    }
+  },
+  "test_baseline_yolov8n_no_thermal_training": {
+    "precision": 0.5915,
+    "recall": 0.2876,
+    "mAP50": 0.349,
+    "mAP50_95": 0.2061,
+    "speed_ms_per_image_gpu": {
+      "preprocess": 1.12,
+      "inference": 4.16,
+      "loss": 0.0,
+      "postprocess": 1.69
+    }
+  },
+  "model_size": {
+    "layers": 226,
+    "parameters_M": 3.14,
+    "GFLOPs": 8.7,
+    "weights_MB": 6.5
+  },
+  "cpu_speed": {
+    "ms_per_image": 146.8,
+    "fps": 6.8,
+    "note": "Colab CPU, imgsz 640, 50 test images"
+  }
+}

@@ -11,6 +11,8 @@ The factory's fixed sensor. It starts the whole scenario.
 - Buzzer + green / yellow / red LEDs
 - OLED 0.96" I2C screen (SSD1306, 128×64): SDA → GPIO 21, SCL → GPIO 22, VCC → 3.3V
 
+Full wiring, connection by connection: [WIRING.md](WIRING.md).
+
 ## Behaviour
 
 - Reads gas, temperature (and how fast it rises) and the flame sensor.

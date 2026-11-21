@@ -43,6 +43,29 @@ The same firmware runs in the [Wokwi](https://wokwi.com) ESP32 simulator, with a
 | [`wokwi/diagram.json`](wokwi/diagram.json) | `diagram.json` |
 | [`wokwi/libraries.txt`](wokwi/libraries.txt) | `libraries.txt` (`DHT sensor library`, `Adafruit Unified Sensor`, `Adafruit GFX Library`, `Adafruit SSD1306`) |
 
+Keep `IN_WOKWI = true` and `WIFI_SSID = "Wokwi-GUEST"` in the simulation.
+
+### Wokwi wiring
+
+| Part | Pin → ESP32 |
+|---|---|
+| Gas sensor | VCC → 3V3, GND → GND, AOUT → 34 |
+| DHT22 | VCC → 3V3, GND → GND, SDA → 4 |
+| Flame sensor | VCC → 3V3, GND → GND, DOUT → 27 |
+| Green / yellow / red LED | A → 25 / 26 / 33, C → GND |
+| Buzzer | 2 → 32, 1 → GND |
+| OLED (SSD1306) | VCC → 3V3, GND → GND, SDA → 21, SCL → 22 |
+
+The GPIO pins are the same as on the real board, so the firmware does not change. Only these details differ:
+
+| | Wokwi | Real hardware ([WIRING.md](WIRING.md)) |
+|---|---|---|
+| Breadboard | none, parts wired straight to the ESP32 | rails for 3.3V, 5V and GND |
+| Gas sensor power | 3V3 | 5V (VIN) |
+| Gas divider (10 kΩ + 20 kΩ) | not needed | needed |
+| LED resistors (220 Ω) | not needed | needed |
+| Flame sensor | cannot be triggered | works |
+
 Press Play, then click a sensor to move its slider:
 
 - Raise the gas ppm, and the node goes `WARNING` then `ALARM (gas)`.

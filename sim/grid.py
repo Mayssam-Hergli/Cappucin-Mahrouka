@@ -20,6 +20,7 @@ class Factory:
     def __init__(self, path):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
+        self.data = data
 
         self.name = data.get("name", "factory")
         self.rows = data["grid"]

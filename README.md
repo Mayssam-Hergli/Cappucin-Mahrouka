@@ -157,12 +157,12 @@ python voice/voice.py --server http://SERVER_IP:5000
 ### Run the simulation alone (no server)
 
 ```bash
-python -m sim.viewer                                         # live animation of the demo scenario
-python -m sim.viewer --origin 34 20 --wind 10 270            # choose the fire origin and the wind
-python -m sim.viewer --save fire.png --steps 0 40 120 250    # snapshots side by side
+python -m sim.viewer                                          # live animation of the demo scenario
+python -m sim.viewer --origin 34 20 --wind 10 270 --entry E2  # fire origin, wind and drone entry door
+python -m sim.viewer --save run.png --steps 20 60 100 130     # snapshots side by side
 ```
 
-This shows the fire, smoke and gas spreading, the drone exploring, and the three plans.
+This plays the whole scenario: the fire, smoke and gas spread, the drone is launched after a short forecast, explores, finds victims (who answer automatically), and the three plans are drawn on the map.
 
 ## Shared contract
 
@@ -208,7 +208,8 @@ NORMAL → ALERT → CHECKING → CONFIRMED (or FALSE_ALARM → NORMAL) → EN_R
   "plans": {
     "evacuation": [{"victim": "V1", "path": [[x, y], ...], "exit": "E3", "rescue_first": true}],
     "entry":      {"door": "E2", "path": [[x, y], ...]},
-    "extinguish": [{"zone": "Z3", "fire_class": "B", "agent": "foam", "attack_from": "W", "order": 1}]
+    "extinguish": [{"zone": "Z4", "at": [35, 20], "fire_class": "C", "agent": "powder", "attack_from": "W",
+                    "first": ["close the gas valve GV1"], "order": 1}]
   },
   "events": ["12:03 ALARM zone Z2 (gas)", "..."]
 }
@@ -223,11 +224,23 @@ sim = Sim("sim/factory.json")
 sim.start_fire(x, y)                    # fire origin given by the factory
 sim.set_wind(kmh, deg)                  # wind slider on the dashboard
 sim.launch_drone("E2")                  # entry door chosen on the dashboard
-sim.step()                              # called every 0.5 s by the server
+sim.step()                              # called every 0.5 s by the server; returns the ids of victims found
 sim.add_victim_here(conf)               # the webcam saw a person at the drone's position
 sim.set_victim_status("V1", "injured")  # walking | injured | no_answer
 sim.state()                             # dict = the state above, without "phase" and "events"
 ```
+
+Helpers for the server and the dashboard. These are additions and change nothing above:
+
+```python
+sim.map_info()                          # the map to draw: grid, zones, exits, sensors... (hidden victims left out)
+sim.forecast(minutes=5)                 # where the fire will be if nothing is done (call once at EN_ROUTE)
+sim.guidance("V1")                      # {exit, distance_m, doors, say}: "say" is the French sentence for the voice
+sim.set_drone_temp(36.2)                # optional: a real temperature from a "drone box" sensor
+Sim("sim/factory.json", return_temp=35) # optional: a lower return threshold for a live hardware demo
+```
+
+See [`sim/README.md`](sim/README.md#how-the-server-uses-it) for how each phase calls the simulation.
 
 ### Conventions
 
@@ -242,6 +255,9 @@ sim.state()                             # dict = the state above, without "phase
 | Victim from the webcam | `add_victim_here(conf)` returns the victim id it found or created (or `null` if the drone is not inside), so the server can queue the voice message. |
 | IDs | Zones `Z1…`, sensor nodes `N1…`, exit doors `E1…E3`, victims `V1…`. |
 | Attack side | `attack_from` is one of `N`, `S`, `E`, `W`. |
+| Actions first | `first` lists what to do before attacking (close a gas valve, cut the power). It can be empty. |
+| Order label | `at` is a burning cell near the middle of that zone's fire, where the dashboard draws the order number. |
+| Fire class | `fire_class` is `A`, `B`, `C` or `electrical`. |
 
 ### Factory map (`sim/factory.json`)
 
@@ -270,11 +286,14 @@ The simulation is a deterministic, grid-based physical model: it uses a fixed ra
 - **Smoke** spreads faster than fire and fills rooms through the doors.
 - **Gas** spreads from a `G` cell that is burning or leaking.
 
+Each `step()` is 2 simulated seconds. Stored goods burn for several minutes, so the fire is still active when the plans are made.
+
 ### Virtual drone
 
-- It enters by the chosen exit door and explores: it always goes to the nearest unexplored cell it can reach.
-- Its thermal range is **3 cells**. Every victim within that range is revealed and placed on the map.
-- Its temperature rises near burning cells and drops elsewhere. **At 60 °C** it switches to `RETURNING`, follows A* to the nearest exit, then becomes `OUT`. It also returns once the whole building is explored.
+- It enters by the chosen exit door and flies at **1 m/s**. It always heads for the unexplored cell that is cheapest to reach, so it avoids heat and never flies through flames.
+- Its thermal range is **3 cells**, and walls block the view. Every victim within that range is revealed and placed on the map.
+- When it finds a victim, it **hovers to talk to them** until they answer, or for 8 seconds at most.
+- Its temperature follows the radiant heat and the hot smoke around it. **At 60 °C** it switches to `RETURNING`, follows the safest path to the nearest exit, then becomes `OUT`. It also returns once the whole building is explored.
 
 ### Safest path (A*)
 
@@ -287,11 +306,13 @@ burning cells are blocked
 
 | Plan | How it is computed |
 |---|---|
-| **Evacuation** | For each victim found, A* to the nearest safe exit. A victim who is `injured` or gives `no_answer` gets `rescue_first = true`. |
-| **Entry** | The exit door whose paths to the victims are the safest, meaning the lowest total A* cost. |
-| **Extinguishing** | For each burning zone, the agent depends on the fire class: A → water, B → foam, C (gas) → close the gas valve, then powder, electrical → cut the power, then CO₂. Firefighters attack upwind, from the side away from the victims. Order: first protect the victims' paths, then the `F` and `G` stores (explosion risk), then the rest. |
+| **Evacuation** | For each victim found, the safest path to an exit (the lowest A* cost, not simply the nearest door). A victim who is `injured`, gives `no_answer`, has not answered yet, or has no safe way out gets `rescue_first = true`. |
+| **Entry** | The exit door whose paths to all the victims found are the safest in total. The path shown leads to the first victim to reach. Before any victim is found, it leads to the edge of the fire. |
+| **Extinguishing** | For each burning zone, the agent depends on the fire class: A → water, B → foam, C (gas) → powder, electrical → CO₂. Close the gas valve first if gas bottles burn or are next to the fire, and cut the power first if an electrical cabinet does. Firefighters attack upwind (wind at their back) and from the side away from any victim close to the fire. Order: first the fires that threaten a victim or an evacuation path, then the solvent and gas stores (explosion risk), then the largest. |
 
-When there is time, each attack option is simulated a few minutes ahead on a copy of the grid, and the option that leaves the least fire near the victims is kept.
+The plans are recomputed at every step, so they follow the fire live.
+
+**Planned improvement:** simulate each attack option a few minutes ahead on a copy of the grid, and keep the one that leaves the least fire near the victims.
 
 ## The AI model
 

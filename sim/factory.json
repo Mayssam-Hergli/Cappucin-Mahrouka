@@ -39,10 +39,10 @@
     "##############E#########################"
   ],
   "zones": [
-    {"id": "Z1", "name": "Offices",                "rect": [1, 1, 12, 8]},
-    {"id": "Z2", "name": "Paper and wood storage", "rect": [14, 1, 38, 8]},
-    {"id": "Z3", "name": "Production hall",        "rect": [1, 10, 26, 23]},
-    {"id": "Z4", "name": "Solvent and gas store",  "rect": [28, 10, 38, 23]}
+    {"id": "Z1", "name": "Offices",                "name_fr": "les bureaux",                   "rect": [1, 1, 12, 8]},
+    {"id": "Z2", "name": "Paper and wood storage", "name_fr": "le stockage papier et bois",    "rect": [14, 1, 38, 8]},
+    {"id": "Z3", "name": "Production hall",        "name_fr": "l'atelier de production",       "rect": [1, 10, 26, 23]},
+    {"id": "Z4", "name": "Solvent and gas store",  "name_fr": "le stockage solvants et gaz",   "rect": [28, 10, 38, 23]}
   ],
   "exits": [
     {"id": "E1", "x": 0,  "y": 4,  "side": "W"},
@@ -76,6 +76,6 @@
   "demo": {
     "origin": [22, 3],
     "wind": {"kmh": 15, "deg": 90},
-    "entry": "E2"
+    "entry": "E1"
   }
 }

@@ -18,11 +18,11 @@ from .grid import DOOR, FLOOR, FUEL, GAS, PAPER, ELEC, EXIT, N4, N8, STOCK, WALL
 # material: (ignition probability per step from one burning neighbour, burn time in steps)
 MATERIALS = {
     FLOOR: (0.015, 6),      # bare concrete: only debris burns, briefly
-    DOOR:  (0.03, 20),      # fire door: slows the fire
-    PAPER: (0.30, 150),
-    FUEL:  (0.55, 100),
-    GAS:   (0.50, 40),
-    ELEC:  (0.20, 60),
+    DOOR:  (0.03, 40),      # fire door: slows the fire
+    PAPER: (0.30, 450),
+    FUEL:  (0.55, 300),
+    GAS:   (0.50, 120),
+    ELEC:  (0.20, 200),
 }
 
 DIAGONAL_FACTOR = 0.7       # diagonal neighbours are further away

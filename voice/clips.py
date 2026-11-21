@@ -14,7 +14,7 @@ CLIPS = {
     # --- the message to a victim, played in this order ---
     "hello":      "Ahla, ena drone mta3 el Protection Civile. Ma t5afech, rana jeyin n3awnouk.",
     "smoke":      "Hbat 9rib mel 9a3a, w ghatti fommek w nifek b 7wayjek.",
-    "exit_intro": "A9reb sortie lik hiya...",
+    "exit_intro": "A7sen sortie lik, w aslem wa7da, hiya...",   # the SAFEST exit (sim picks safest, not nearest)
     "exit_E1":    "...sortie numéro wa7ed.",
     "exit_E2":    "...sortie numéro zouz.",
     "exit_E3":    "...sortie numéro thletha.",

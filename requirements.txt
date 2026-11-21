@@ -10,8 +10,6 @@ ultralytics>=8.2
 
 # voice/
 pyttsx3>=2.90
-SpeechRecognition>=3.10
-pyaudio>=0.2.14
 
 # vision/, voice/, server/fake_sensor.py (HTTP clients)
 requests>=2.31

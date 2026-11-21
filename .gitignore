@@ -23,3 +23,7 @@ iot/**/build/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Model weights: pretrained ones download themselves; only our trained model is committed
+*.pt
+!ai/weights/*.pt

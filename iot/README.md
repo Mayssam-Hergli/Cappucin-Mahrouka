@@ -25,6 +25,8 @@ POST http://SERVER_IP:5000/api/sensor
 `node` and `zone` must match a sensor declared in `sim/factory.json`: `N1`/`Z2` (default), `N2`/`Z1`, `N3`/`Z3`, `N4`/`Z4`.
 When the level is `NORMAL`, `cause` is `"none"`; otherwise it is `"gas"`, `"temp"` or `"flame"`.
 
+`gas` is sent on the server's common scale (the same as `server/fake_sensor.py`): **300 = clean air, 900 = warning, 1500 = alarm**. The node measures its own clean-air baseline at start-up and converts the raw MQ reading, so the dashboard's zone analysis agrees with the node's level, whatever the sensor's raw range.
+
 ## Simulate in Wokwi (no hardware needed)
 
 **Live simulation:** https://wokwi.com/projects/481306010649524225

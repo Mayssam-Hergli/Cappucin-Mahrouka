@@ -90,7 +90,18 @@ void decideLevel(int gas, float temp, float rise, int flame) {
   else                                      { level = "NORMAL";  cause = "none"; }
 }
 
-void sendReading(int gas, float temp, int flame) {
+// The server reads "gas" on a common scale: 300 = clean air, 900 = warning, 1500 = alarm
+// (same as server/fake_sensor.py). Raw MQ values depend on the sensor and its baseline,
+// so convert: baseline -> 300, baseline + WARNING_DELTA -> 900, baseline + ALARM_DELTA -> 1500.
+int gasForServer(int raw) {
+  int delta = raw - gasBaseline;
+  if (delta <= 0) return max(0, 300 + delta);
+  if (delta <= GAS_WARNING_DELTA) return 300 + delta * 600L / GAS_WARNING_DELTA;
+  return 900 + (delta - GAS_WARNING_DELTA) * 600L / (GAS_ALARM_DELTA - GAS_WARNING_DELTA);
+}
+
+void sendReading(int rawGas, float temp, int flame) {
+  int gas = gasForServer(rawGas);
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("  WiFi down -> not sent (local alarm still active)");
     return;

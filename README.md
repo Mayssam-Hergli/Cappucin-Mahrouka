@@ -157,10 +157,12 @@ python voice/voice.py --server http://SERVER_IP:5000
 ### Run the simulation alone (no server)
 
 ```bash
-python -m sim.viewer
+python -m sim.viewer                                         # live animation of the demo scenario
+python -m sim.viewer --origin 34 20 --wind 10 270            # choose the fire origin and the wind
+python -m sim.viewer --save fire.png --steps 0 40 120 250    # snapshots side by side
 ```
 
-This opens a matplotlib window that shows the fire, smoke and gas spreading, the drone exploring, and the three plans.
+This shows the fire, smoke and gas spreading, the drone exploring, and the three plans.
 
 ## Shared contract
 
@@ -198,6 +200,7 @@ NORMAL → ALERT → CHECKING → CONFIRMED (or FALSE_ALARM → NORMAL) → EN_R
   "t": 135.0,                                   // simulated seconds since the fire started
   "wind": {"kmh": 15, "deg": 90},
   "fire":  [[x, y], ...],
+  "burnt": [[x, y], ...],                       // burnt-out cells
   "smoke": [[x, y], ...],
   "gas":   [[x, y], ...],
   "drone": {"x": 12, "y": 8, "temp": 47.5, "state": "EXPLORING"},   // EXPLORING | RETURNING | OUT
@@ -233,7 +236,10 @@ sim.state()                             # dict = the state above, without "phase
 | Coordinates | `x` = column (0–39), `y` = row (0–24), origin at the **top-left**. 1 cell = 1 m. |
 | Wind direction | `deg` = the direction the wind **blows toward**: 0 = north (up), 90 = east (right), 180 = south, 270 = west. |
 | Time | Each `step()` advances simulated time by a fixed amount (demo-accelerated). `t` is in simulated seconds. |
-| Victims | `state()["victims"]` lists every victim. Only those with `found: true` are known to the commander and drawn on the map. |
+| Victims | `state()["victims"]` lists every victim. Only those with `found: true` are known to the commander and drawn on the map. A victim's `status` is `unknown` until they answer the drone, then `walking`, `injured` or `no_answer`. |
+| Drone | `state()["drone"]` is `null` until `launch_drone()` is called. |
+| Fire origin | `start_fire(x, y)` returns the cell it actually used: a click on a wall moves to the nearest open cell. |
+| Victim from the webcam | `add_victim_here(conf)` returns the victim id it found or created (or `null` if the drone is not inside), so the server can queue the voice message. |
 | IDs | Zones `Z1…`, sensor nodes `N1…`, exit doors `E1…E3`, victims `V1…`. |
 | Attack side | `attack_from` is one of `N`, `S`, `E`, `W`. |
 

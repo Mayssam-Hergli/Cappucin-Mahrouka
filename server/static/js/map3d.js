@@ -139,6 +139,12 @@ class View3DImpl {
     Theme.on(() => { if (this.world) this.build(); });
   }
 
+  // couleur du thème (THREE.Color), mise en cache jusqu'au prochain changement de thème
+  c(tok) {
+    const m = this._colors || (this._colors = {});
+    return m[tok] || (m[tok] = col(this.T[tok]));
+  }
+
   wx(x) { return x + 0.5 - this.W / 2; }
   wz(y) { return y + 0.5 - this.H / 2; }
   cell(x, y) { return (this.f.grid[y] || "")[x] || "#"; }
@@ -147,7 +153,7 @@ class View3DImpl {
   async build() {
     await Icons.ready;
     if (this.world) { this.scene.remove(this.world); this._dispose(this.world); }
-    this.keys = {}; this.victims.clear();
+    this.keys = {}; this.victims.clear(); this._colors = {}; this._syncS = null; this._cells = null;
     this.T = Theme.read(TOK);
     const T = this.T, W = this.W, H = this.H;
     this.scene.background = col(T["map-bg"]);
@@ -502,8 +508,19 @@ class View3DImpl {
   _sync(s, now, t, dt) {
     const T = this.T, L = mapLayers(), Lv = G();
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v3 = new THREE.Vector3(), sc = new THREE.Vector3();
-    const key = (k, v) => { const j = JSON.stringify(v); if (this.keys[k] === j) return false; this.keys[k] = j; return true; };
-    const cellsOf = (set) => [...set].map((k) => k.split(",").map(Number));
+    // signatures recalculées seulement quand un nouvel état arrive (pas à chaque image)
+    const fresh = s !== this._syncS;
+    this._syncS = s;
+    const key = (k, vf) => {
+      if (!fresh && this.keys[k] != null) return false;
+      const j = JSON.stringify(vf());
+      if (this.keys[k] === j) return false;
+      this.keys[k] = j; return true;
+    };
+    if (fresh || !this._cells) {
+      const cellsOf = (set) => [...set].map((k) => k.split(",").map(Number));
+      this._cells = { fire: cellsOf(Lv.fireNow), smoke: cellsOf(Lv.smokeNow).slice(0, SMOKE_MAX), gas: cellsOf(Lv.gasNow) };
+    }
 
     // phase : plongée vers la zone en alarme au passage en ALERT
     if (this.lastPhase !== null && s.phase !== this.lastPhase && s.phase === "ALERT") {
@@ -513,14 +530,14 @@ class View3DImpl {
     this.lastPhase = s.phase;
 
     // brûlé + halo + particules + lumières
-    const fire = cellsOf(Lv.fireNow);
-    if (key("burnt", [...Lv.burnt].length + ":" + fire.length)) {
-      const burnt = cellsOf(Lv.burnt);
+    const fire = this._cells.fire;
+    if (key("burnt", () => Lv.burnt.size + ":" + fire.length)) {
+      const burnt = [...Lv.burnt].map((k) => k.split(",").map(Number));
       this.burntMesh.count = burnt.length;
       burnt.forEach(([x, y], i) => { m4.makeTranslation(this.wx(x), 0.012, this.wz(y)); this.burntMesh.setMatrixAt(i, m4); });
       this.burntMesh.instanceMatrix.needsUpdate = true;
     }
-    if (key("fire", [[...Lv.fireNow].sort(), Lv.burnt.size])) {
+    if (key("fire", () => [[...Lv.fireNow].sort(), Lv.burnt.size])) {
       const n = fire.length;
       const budget = Math.floor(FIRE_MAX * (this.fireBudget || 1));
       const per = n ? Math.max(3, Math.min(28, Math.floor(budget / n))) : 0;
@@ -577,7 +594,7 @@ class View3DImpl {
     });
 
     // fumée (dérive selon le vent) et gaz
-    const smoke = cellsOf(Lv.smokeNow).slice(0, SMOKE_MAX);
+    const smoke = this._cells.smoke;
     const wind = s.wind || { deg: 90, kmh: 10 };
     const wr = (wind.deg || 0) * Math.PI / 180, wv = Math.min(1, (wind.kmh || 0) / 25);
     const wxv = Math.sin(wr), wzv = -Math.cos(wr);
@@ -596,7 +613,7 @@ class View3DImpl {
       });
       m.instanceMatrix.needsUpdate = true;
     });
-    const gas = cellsOf(Lv.gasNow);
+    const gas = this._cells.gas;
     this.gasMesh.visible = L.gas && gas.length > 0;
     if (this.gasMesh.visible) {
       this.gasMesh.count = gas.length;
@@ -632,7 +649,7 @@ class View3DImpl {
     this.ghostMesh.visible = this.ghostTile.visible = ghostOn;
     if (ghostOn) {
       let n = 0;
-      const c = new THREE.Color(), soon = col(T["alarm"]), late = col(T["amber"]);
+      const c = this._tmpC || (this._tmpC = new THREE.Color()), soon = this.c("alarm"), late = this.c("amber");
       for (const [k, sec] of Object.entries(eta)) {
         const rem = sec - elapsed;
         if (rem <= 0 || rem > horizon || Lv.fireNow.has(k)) continue;
@@ -659,7 +676,7 @@ class View3DImpl {
       const lvl = zs ? zs.level : "NORMAL";
       grp.visible = lvl !== "NORMAL";
       if (grp.visible) {
-        grp.userData.mat.color = col(lvl === "DANGER" ? T["alarm"] : T["amber"]);
+        grp.userData.mat.color.copy(this.c(lvl === "DANGER" ? "alarm" : "amber"));
         grp.userData.mat.opacity = lvl === "DANGER" ? 0.65 + 0.35 * Math.sin(t * 4) : 0.85;
       }
     }
@@ -672,13 +689,14 @@ class View3DImpl {
         this.world.add(m); this.sensorMeshes.set(se.id, m);
       }
       m.position.set(this.wx(se.x), 2.7, this.wz(se.y));
-      m.material.color = col(se.level === "ALARM" ? T["alarm"] : se.level === "WARNING" ? T["amber"] : T["map-ink-2"]);
+      m.material.color.copy(this.c(se.level === "ALARM" ? "alarm" : se.level === "WARNING" ? "amber" : "map-ink-2"));
     }
 
     // plans : rubans au sol avec chevrons qui défilent
     const showPlans = L.paths && ["DRONE_INSIDE", "PLANS_READY"].includes(s.phase);
     this.planGroup.visible = showPlans;
-    if (key("plans", [s.plans, Lv.fireNow.size])) {
+    const ms = typeof Mission !== "undefined" ? Mission.get(s) : null;
+    if (key("plans", () => [s.plans, Lv.fireNow.size, ms && ms.sig])) {
       this._clear(this.planGroup);
       const p = s.plans || {};
       const halo = new THREE.MeshBasicMaterial({ color: col(T["map-halo"]), transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
@@ -690,7 +708,31 @@ class View3DImpl {
         }
       };
       for (const e of p.evacuation || []) if (e.path && e.path.length > 1) add(e.path, T["evac"], 0.05);
-      if (p.entry && p.entry.path && p.entry.path.length > 1) add(p.entry.path, T["entry"], 0.07);
+      if (ms) {
+        // ordre d'intervention (mission.js) : mêmes itinéraires et numéros que sur le plan 2D
+        const KC = { rescue: T["entry"], safety: T["amber"], attack: T["attack"] };
+        const KF = { rescue: T["entry"], safety: T["amber"], attack: T["alarm-fill"] };
+        for (const r of ms.routes) if (r.path && r.path.length > 1) add(r.path, KC[r.kind], 0.07);
+        const atkMat = new THREE.MeshBasicMaterial({ color: col(T["attack"]) });
+        for (const l of ms.lances) {
+          const from = new THREE.Vector3(this.wx(l.from[0]), 0.9, this.wz(l.from[1]));
+          const to = new THREE.Vector3(this.wx(l.to[0]), 0.9, this.wz(l.to[1]));
+          const d = to.clone().sub(from), len = Math.max(0.3, d.length() - 0.6);
+          d.normalize();
+          const qq = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
+          const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, len, 10), atkMat);
+          const head = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.5, 14), atkMat);
+          shaft.quaternion.copy(qq); head.quaternion.copy(qq);
+          shaft.position.copy(from).addScaledVector(d, len / 2);
+          head.position.copy(from).addScaledVector(d, len + 0.25);
+          this.planGroup.add(shaft, head);
+        }
+        for (const st of ms.steps) {
+          const n = label(`${st.n}  ${st.title}`, KF[st.kind], st.kind === "safety" ? "#1c1402" : "#ffffff", 0.55);
+          n.position.set(this.wx(st.x), st.kind === "attack" ? 2.2 : 2.9, this.wz(st.y));
+          this.planGroup.add(n);
+        }
+      } else if (p.entry && p.entry.path && p.entry.path.length > 1) add(p.entry.path, T["entry"], 0.07);
       // attaques : flèche rouge depuis le côté d'attaque + numéro
       const byZone = {};
       for (const [x, y] of fire) {
@@ -698,7 +740,7 @@ class View3DImpl {
         if (z) (byZone[z.id] = byZone[z.id] || []).push([x, y]);
       }
       const atk = new THREE.MeshBasicMaterial({ color: col(T["attack"]) });
-      for (const e of p.extinguish || []) {
+      for (const e of ms ? [] : p.extinguish || []) {
         let cx, cy;
         if (e.at) { cx = e.at[0]; cy = e.at[1]; } else {
           const cells = byZone[e.zone]; if (!cells) continue;
@@ -723,7 +765,7 @@ class View3DImpl {
     if (showPlans) this.chev.offset.x -= dt * 0.9;
 
     // trajectoire du drone
-    if (key("trail", s.trail || [])) {
+    if (key("trail", () => s.trail || [])) {
       this._clear(this.trailGroup);
       const mat = new THREE.MeshBasicMaterial({ color: col(T["map-ink"]), transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
       const r = this._ribbon(s.trail || [], 0.09, 0.04, mat); if (r) this.trailGroup.add(r);
@@ -789,8 +831,8 @@ class View3DImpl {
       this.droneBody.position.y = 1.5 + 0.05 * Math.sin(t * 2.4);
       for (const r of this.rotors) r.rotation.y += dt * 40;
       const heat = Math.max(0, Math.min(1, ((d.temp || 20) - 35) / 25));
-      this.droneMat.color.copy(col(T["map-ink"])).lerp(col(T["alarm"]), heat);
-      this.droneMat.emissive.copy(col(T["alarm"])).multiplyScalar(heat * (0.4 + 0.3 * Math.sin(t * 8)));
+      this.droneMat.color.copy(this.c("map-ink")).lerp(this.c("alarm"), heat);
+      this.droneMat.emissive.copy(this.c("alarm")).multiplyScalar(heat * (0.4 + 0.3 * Math.sin(t * 8)));
     }
   }
 

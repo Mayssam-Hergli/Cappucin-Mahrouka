@@ -31,8 +31,9 @@ Dans le dashboard, la touche **D** affiche le panneau démo (étape suivante, al
 | `geo.py` | Grille, ligne de vue, BFS, A* |
 | `fake_sensor.py` | Faux ESP32 |
 | `data/factory_demo.json` | Carte de démo provisoire (générée par `data/make_factory.py`) |
-| `static/js/live.js` | Récupération de `/api/state` toutes les 500 ms + mémoire côté écran |
+| `static/js/live.js` | Récupération de `/api/state` toutes les 500 ms + mémoire côté écran ; `Live.post` met le bouton cliqué « en cours » (roue) puis affiche « Fait » ou « Refusé : raison » |
 | `static/js/map.js` | Rendu canvas 60 images/s (brouillard, feu, fumée, drone interpolé, scan, alertes) |
+| `static/js/mission.js` | Ordre d'intervention des pompiers, construit à partir des plans : sauvetages, coupures, attaques, avec itinéraires, établissements, lances et dangers sur le chemin (dessiné par `map.js`, listé par `panel.js`) |
 | `static/js/loupe.js` | Vue zoomée d'une zone en danger (équipements, valeurs placées, top 3, risques) |
 | `static/js/thermal.js` | Caméra thermique (image webcam de Teammate 1 si dispo, sinon simulée) |
 | `static/js/panel.js` | Frise des phases, chrono, actions, victimes, plans à valider, journal, santé |

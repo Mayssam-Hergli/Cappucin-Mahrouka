@@ -93,7 +93,9 @@ const Action = {
       case "PLANS_READY": {
         level = "green"; tag = "ACTION";
         const e = s.plans && s.plans.entry;
-        parts.push(e && e.door ? `Entrer par ${exitTxt(e.door)}` : "Valider le plan d'entrée");
+        const m = typeof Mission !== "undefined" ? Mission.get(s) : null;
+        if (m) parts.push(`Étape 1 : ${m.steps[0].title}`);
+        else parts.push(e && e.door ? `Entrer par ${exitTxt(e.door)}` : "Valider le plan d'entrée");
         const vt = victimTxt(); if (vt) parts.push(vt);
         break;
       }

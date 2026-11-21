@@ -57,6 +57,8 @@ class MapView {
     this.zoneById = Object.fromEntries((factory.zones || []).map(z => [z.id, z]));
     this._victimSeen = new Map();   // id -> instant d'apparition (impulsion unique)
     this._zoneLvl = new Map();      // id -> { level, at } (onde unique au passage en alerte)
+    this._animUntil = 0;            // une animation (drone, impulsion, onde) demande des images jusque-là
+    this._themeRev = 0; this._staticRev = 0;
     this._applyTheme();
     this.resize();
     new ResizeObserver(() => this.resize()).observe(canvas);
@@ -68,6 +70,7 @@ class MapView {
   // couleurs du thème courant (propriétés CSS) + tout ce qui en dépend
   _applyTheme() {
     const T = this.T = Theme.read(MAP_TOKENS);
+    this._themeRev = (this._themeRev || 0) + 1;
     const stops = [0, .2, .42, .62, .82, 1];
     this.inferno = stops.map((p, i) => [p, hexRgb(T["inferno-" + i])]);
     this.light = Theme.mode === "light";
@@ -96,6 +99,7 @@ class MapView {
     this.cv.width = Math.round(this.cssW * dpr);
     this.cv.height = Math.round(this.cssH * dpr);
     this.dpr = dpr;
+    this._worldKey = null;          // changer la taille efface le canvas : tout redessiner
   }
   _view() {
     const c = this.cam;
@@ -247,6 +251,7 @@ class MapView {
       g.fillText(`${(x1 - x0 + 1) * (y1 - y0 + 1)} m²`, x0 * P + P * .25, y0 * P + P * .72);
     }
     this.staticLayer = c;
+    this._staticRev = (this._staticRev || 0) + 1;
   }
 
   _picto(g, name, cx, cy, size) {
@@ -279,36 +284,106 @@ class MapView {
     return this.ctx.createPattern(c, "repeat");
   }
 
-  // cellules données, remplies d'un motif en coordonnées écran (hachures nettes à tout zoom)
+  // cellules données, remplies d'un motif en coordonnées écran (hachures nettes à tout zoom) :
+  // un seul chemin, un seul remplissage (bien plus léger qu'un fillRect par cellule)
   _hatchCells(ctx, v, keys, pattern, alpha, test) {
     ctx.save();
     ctx.scale(1 / v.s, 1 / v.s);
     ctx.fillStyle = pattern; ctx.globalAlpha = alpha;
+    ctx.beginPath();
     for (const k of keys) {
       const [x, y] = typeof k === "string" ? k.split(",").map(Number) : k;
       if (test && !test(x, y)) continue;
-      ctx.fillRect(x * v.s, y * v.s, v.s, v.s);
+      ctx.rect(x * v.s, y * v.s, v.s, v.s);
     }
+    ctx.fill();
     ctx.restore();
   }
 
   // -------------------------------------------------------------- dessin
+  // Deux couches :
+  //  * le « monde » (plan, feu, fumée, brouillard, plans, étiquettes de mission, rose des vents),
+  //    dessiné dans un canvas hors écran et redessiné seulement quand l'état, la caméra,
+  //    le thème ou les calques changent ;
+  //  * par-dessus, à chaque image : drone interpolé, victimes, ondes, survol, valeurs qui défilent.
+  // Chaque état reçu du serveur (2 fois par seconde) redessine tout : le drone et les chemins
+  // suivent toujours le serveur. Entre deux états, l'image n'est redessinée que si quelque chose
+  // s'anime (drone qui glisse, valeur qui défile, onde, survol) : PC sans carte graphique.
+  // Une erreur dans une couche est signalée dans la console sans bloquer les autres couches.
   draw(now) {
     const s = Live.s;
     const ctx = this.ctx, T = this.T;
-    if (REDUCED_MOTION) this.cam = { ...this.camTarget };
-    else for (const k of ["x", "y", "w", "h"]) this.cam[k] = U.lerp(this.cam[k], this.camTarget[k], 0.12);
+    let camMoving = false;
+    for (const k of ["x", "y", "w", "h"]) {
+      let nv = REDUCED_MOTION ? this.camTarget[k] : U.lerp(this.cam[k], this.camTarget[k], 0.12);
+      if (Math.abs(nv - this.camTarget[k]) < 2e-3) nv = this.camTarget[k];
+      if (nv !== this.cam[k]) camMoving = true;
+      this.cam[k] = nv;
+    }
+    const v = this._view();
+    this._ox = v.ox;
+    const fading = !!s && !REDUCED_MOTION && this.layers.fog && Live.fogOn() && now - Live.lastReveal < 650;
+    const key = [Live.at, this.cam.x, this.cam.y, this.cam.w, this.cam.h, this.cv.width, this.cv.height,
+      this._themeRev, this._staticRev, JSON.stringify(this.layers), this.focusZone, fading ? now : 0].join("|");
+    const worldChanged = key !== this._worldKey;
+    const hoverKey = this.hover ? this.hover.join(",") : "";
+    const busy = worldChanged || hoverKey !== this._hoverKey || now < this._animUntil;
+    if (!busy) return;
+    this._hoverKey = hoverKey;
+    if (worldChanged) {
+      this._worldKey = key;
+      if (!this._world) this._world = document.createElement("canvas");
+      const wctx = this._world.getContext("2d");
+      wctx.save();
+      try { this._drawWorld(s, now, v); }
+      catch (e) { this._report("plan", e); this._worldKey = null; }   // réessayé à l'image suivante
+      finally { wctx.restore(); }
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (this._world.width) ctx.drawImage(this._world, 0, 0);
+    if (!s) return;
 
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.save();
+    ctx.translate(v.ox, v.oy);
+    ctx.scale(v.s, v.s);
+    const layer = (name, fn) => { ctx.save(); try { fn(); } catch (e) { this._report(name, e); } finally { ctx.restore(); } };
+    layer("victimes", () => this._drawVictims(ctx, s, now, v));
+    layer("drone", () => this._drawDrone(ctx, s, now, v));
+    layer("ondes", () => this._drawZoneWaves(ctx, s, now, v));
+    layer("valeurs", () => { if (this.detail) this._drawDetailLabels(ctx, s, v); else this._drawZoneChips(ctx, s, v); });
+    layer("étiquette drone", () => this._drawDroneLabel(ctx, v));
+    if (this.hover && !this.detail) {
+      ctx.strokeStyle = withAlpha(T["map-ink"], .8); ctx.lineWidth = 1.5 / v.s;
+      ctx.strokeRect(this.hover[0] + .04, this.hover[1] + .04, .92, .92);
+    }
+    ctx.restore();
+  }
+
+  // erreur de dessin : une ligne dans la console par couche et par message (pas 60 par seconde)
+  _report(layer, e) {
+    const k = layer + ":" + (e && e.message);
+    this._reported = this._reported || new Set();
+    if (this._reported.has(k)) return;
+    this._reported.add(k);
+    console.error(`[carte] couche « ${layer} » :`, e);
+  }
+
+  // force un redessin complet (thème, calques, taille)
+  invalidate() { this._worldKey = null; }
+
+  _drawWorld(s, now, v) {
+    const wc = this._world;
+    if (wc.width !== this.cv.width || wc.height !== this.cv.height) { wc.width = this.cv.width; wc.height = this.cv.height; }
+    const ctx = wc.getContext("2d"), T = this.T;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = T["map-bg"];
     ctx.fillRect(0, 0, this.cssW, this.cssH);
-    const v = this._view();
-    this._ox = v.ox;
     ctx.save();
     ctx.translate(v.ox, v.oy);
     ctx.scale(v.s, v.s);
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(this.staticLayer, 0, 0, this.W, this.H);
+    if (this.staticLayer) ctx.drawImage(this.staticLayer, 0, 0, this.W, this.H);
     if (!s) { ctx.restore(); if (!this.detail) this._overlays(ctx, null, v); return; }
 
     const fog = this.layers.fog && Live.fogOn();
@@ -318,7 +393,9 @@ class MapView {
 
     // brûlé : le bas de la palette thermique
     ctx.fillStyle = T["map-burnt"];
-    for (const k of Live.burnt) if (revealed(k)) { const [x, y] = k.split(",").map(Number); ctx.fillRect(x, y, 1, 1); }
+    ctx.beginPath();
+    for (const k of Live.burnt) if (revealed(k)) { const [x, y] = k.split(",").map(Number); ctx.rect(x, y, 1, 1); }
+    ctx.fill();
 
     // fumée : couche de densité grise, douce et immobile
     if (this.layers.smoke && Live.smokeNow.size) {
@@ -335,7 +412,9 @@ class MapView {
     // gaz : hachure jaune-vert
     if (this.layers.gas && Live.gasNow.size) {
       ctx.fillStyle = withAlpha(T["map-gas"], .12);
-      for (const k of Live.gasNow) if (revealed(k)) { const [x, y] = k.split(",").map(Number); ctx.fillRect(x, y, 1, 1); }
+      ctx.beginPath();
+      for (const k of Live.gasNow) if (revealed(k)) { const [x, y] = k.split(",").map(Number); ctx.rect(x, y, 1, 1); }
+      ctx.fill();
       this._hatchCells(ctx, v, Live.gasNow, this._gasPattern, 1, (x, y) => revealed(x + "," + y));
     }
 
@@ -383,7 +462,9 @@ class MapView {
     // prévision du feu (+3 min) pendant le trajet : contour pointillé, voile léger
     if (s.phase === "EN_ROUTE" && Live.forecast.size) {
       ctx.fillStyle = withAlpha(T["inferno-3"], .16);
-      for (const k of Live.forecast) { const [x, y] = k.split(",").map(Number); ctx.fillRect(x, y, 1, 1); }
+      ctx.beginPath();
+      for (const k of Live.forecast) { const [x, y] = k.split(",").map(Number); ctx.rect(x, y, 1, 1); }
+      ctx.fill();
       ctx.strokeStyle = withAlpha(this.light ? T["alarm"] : T["inferno-4"], .9);
       ctx.lineWidth = 1.5 / v.s; ctx.setLineDash([4 / v.s, 3 / v.s]);
       ctx.beginPath();
@@ -399,38 +480,58 @@ class MapView {
 
     this._drawZoneAlerts(ctx, s, now, v);
     this._drawTrail(ctx, s, v);                       // sous les plans, les victimes et les étiquettes
+    this._mission = null;
     if (this.layers.paths) this._drawPlans(ctx, s, v);
     this._drawSensors(ctx, s, v);
-    this._drawVictims(ctx, s, now, v);
-    this._drawDrone(ctx, s, now, v);
-    if (this.detail) this._drawDetailLabels(ctx, s, v);
-    else this._drawZoneChips(ctx, s, v);
-    this._drawDroneLabel(ctx, v);
-
-    if (this.hover && !this.detail) {
-      ctx.strokeStyle = withAlpha(T["map-ink"], .8); ctx.lineWidth = 1.5 / v.s;
-      ctx.strokeRect(this.hover[0] + .04, this.hover[1] + .04, .92, .92);
-    }
     if (this.detail && this.focusZone && this.zoneById[this.focusZone]) {
       const [x0, y0, x1, y1] = this.zoneById[this.focusZone].rect;
       ctx.strokeStyle = withAlpha(T["map-ink"], .35); ctx.setLineDash([4 / v.s, 3 / v.s]); ctx.lineWidth = 1 / v.s;
       ctx.strokeRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1); ctx.setLineDash([]);
     }
     ctx.restore();
+    ctx.save();
+    try { this._drawMissionLabels(ctx, v); } catch (e) { this._report("étiquettes de mission", e); }
+    finally { ctx.restore(); }
     if (!this.detail) this._overlays(ctx, s, v);
   }
 
   _glow(ctx, cells, rx0, ry0, rx1, ry1, alpha) {
     const T = this.T;
     // halo en composition normale dans les deux thèmes : le mode additif ("lighter")
-    // empêchait l'affichage de toute la carte sur certains rendus logiciels
+    // empêchait l'affichage de toute la carte sur certains rendus logiciels.
+    // Une seule image de halo, préparée une fois par thème, posée sur chaque cellule.
+    if (!this._glowImg || this._glowTheme !== this._themeRev) {
+      const c = document.createElement("canvas"); c.width = c.height = 64;
+      const g = c.getContext("2d");
+      const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, withAlpha(T["inferno-4"], 1));
+      gr.addColorStop(1, withAlpha(T["inferno-3"], 0));
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+      this._glowImg = c; this._glowTheme = this._themeRev;
+    }
+    ctx.save();
+    ctx.globalAlpha = alpha;
     for (const [x, y] of cells) {
       if (x < rx0 - 2 || x > rx1 + 2 || y < ry0 - 2 || y > ry1 + 2) continue;
-      const gr = ctx.createRadialGradient(x + .5, y + .5, 0, x + .5, y + .5, 1.6);
-      gr.addColorStop(0, withAlpha(T["inferno-4"], alpha));
-      gr.addColorStop(1, withAlpha(T["inferno-3"], 0));
-      ctx.fillStyle = gr;
-      ctx.fillRect(x - 1.1, y - 1.1, 3.2, 3.2);
+      ctx.drawImage(this._glowImg, x + .5 - 1.6, y + .5 - 1.6, 3.2, 3.2);
+    }
+    ctx.restore();
+  }
+
+  // onde unique au passage d'une zone en alerte (couche animée)
+  _drawZoneWaves(ctx, s, now, v) {
+    if (REDUCED_MOTION) return;
+    const T = this.T;
+    for (const [zid, z] of Object.entries(s.zones || {})) {
+      const lv = this._zoneLvl.get(zid), r0 = z.top && z.top[0];
+      if (!lv || !r0 || z.level === "NORMAL") continue;
+      const age = (now - lv.at) / 1000;
+      if (age < 0 || age >= 1.6) continue;
+      this._animUntil = Math.max(this._animUntil || 0, now + 50);
+      const col = z.level === "DANGER" ? T["alarm"] : T["amber"];
+      ctx.strokeStyle = withAlpha(col, 0.8 * (1 - age / 1.6));
+      ctx.lineWidth = 2 / v.s;
+      ctx.beginPath(); ctx.arc(r0.x + .5, r0.y + .5, 0.6 + age * 3.5, 0, 7); ctx.stroke();
     }
   }
 
@@ -450,14 +551,6 @@ class MapView {
       ctx.strokeStyle = withAlpha(col, .9);
       ctx.lineWidth = 2.5 / v.s;
       ctx.strokeRect(x0 + .04, y0 + .04, x1 - x0 + .92, y1 - y0 + .92);
-      // une seule onde, au moment où la zone passe en alerte
-      const r0 = z.top && z.top[0];
-      const age = (now - this._zoneLvl.get(zid).at) / 1000;
-      if (r0 && !REDUCED_MOTION && age >= 0 && age < 1.6) {
-        ctx.strokeStyle = withAlpha(col, 0.8 * (1 - age / 1.6));
-        ctx.lineWidth = 2 / v.s;
-        ctx.beginPath(); ctx.arc(r0.x + .5, r0.y + .5, 0.6 + age * 3.5, 0, 7); ctx.stroke();
-      }
     }
   }
 
@@ -476,6 +569,15 @@ class MapView {
       if (!e.path || e.path.length < 2) continue;
       ctx.strokeStyle = withAlpha(T["map-halo"], .85); ctx.lineWidth = 5.5 / v.s; this._path(ctx, e.path);
       ctx.strokeStyle = T["evac"]; ctx.lineWidth = 3 / v.s; this._path(ctx, e.path);
+    }
+    // ordre d'intervention (mission.js) : remplace l'entrée seule et les flèches d'attaque
+    let m = null;
+    try { m = typeof Mission !== "undefined" ? Mission.get(s) : null; } catch (e) { this._report("ordre d'intervention", e); }
+    if (m) {
+      ctx.save();
+      try { this._drawMission(ctx, m, v); this._mission = m; return; }
+      catch (e) { this._report("itinéraires", e); this._mission = null; }   // repli : plans de la Sim seuls
+      finally { ctx.restore(); }
     }
     // entrée des pompiers : bleu, tirets
     if (p.entry && p.entry.path && p.entry.path.length > 1) {
@@ -513,6 +615,193 @@ class MapView {
       ctx.fillStyle = T["on-accent"]; ctx.font = `700 .9px ${FONT_COND}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(String(e.order), cx, cy + .04);
     }
+  }
+
+  // couleur d'une étape : bleu sauvetage, ambre mise en sécurité, rouge attaque
+  _kindCol(kind) {
+    const T = this.T;
+    return kind === "rescue" ? T["entry"] : kind === "safety" ? T["amber"] : T["attack"];
+  }
+
+  // itinéraires de la mission, sous les victimes et les étiquettes
+  _drawMission(ctx, m, v) {
+    const T = this.T;
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    // établissements : tuyau de la bouche d'incendie à la porte, par l'extérieur du bâtiment
+    for (const h of m.hoses) {
+      const pts = this._outsideRun([h.hydrant.x, h.hydrant.y], [h.door.x, h.door.y]);
+      ctx.setLineDash([1.5 / v.s, 4 / v.s]);
+      ctx.strokeStyle = withAlpha(T["map-halo"], .8); ctx.lineWidth = 4.5 / v.s; this._poly(ctx, pts);
+      ctx.strokeStyle = T["attack"]; ctx.lineWidth = 2.2 / v.s; this._poly(ctx, pts);
+      ctx.setLineDash([]);
+    }
+    const dash = { rescue: [8, 5], safety: [2, 4], attack: [] };
+    for (const r of m.routes) {
+      if (!r.path || r.path.length < 2) continue;
+      const col = this._kindCol(r.kind);
+      // tronçons menacés par le feu : surlignés en ambre sous le tracé
+      if (r.threat.size) {
+        ctx.strokeStyle = withAlpha(T["amber"], .55); ctx.lineWidth = 9 / v.s;
+        ctx.beginPath();
+        r.path.forEach(([x, y], i) => {
+          if (i && r.threat.has(i) && r.threat.has(i - 1)) { ctx.moveTo(r.path[i - 1][0] + .5, r.path[i - 1][1] + .5); ctx.lineTo(x + .5, y + .5); }
+        });
+        ctx.stroke();
+      }
+      ctx.setLineDash((dash[r.kind] || []).map(d => d / v.s));
+      ctx.strokeStyle = withAlpha(T["map-halo"], .85); ctx.lineWidth = 5.5 / v.s; this._path(ctx, r.path);
+      ctx.strokeStyle = col; ctx.lineWidth = 3 / v.s; this._path(ctx, r.path);
+      ctx.setLineDash([]);
+      this._chevrons(ctx, r.path, col, v);
+    }
+    // lances : flèche de la position d'attaque vers le feu
+    for (const l of m.lances) {
+      const ax = l.from[0] + .5, ay = l.from[1] + .5, fx = l.to[0] + .5, fy = l.to[1] + .5;
+      const d = Math.hypot(fx - ax, fy - ay);
+      if (d < .8) continue;
+      const k = (d - .45) / d, bx = ax + (fx - ax) * k, by = ay + (fy - ay) * k;
+      ctx.strokeStyle = T["map-halo"]; ctx.lineWidth = 6 / v.s;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.strokeStyle = T["attack"]; ctx.fillStyle = T["attack"]; ctx.lineWidth = 3.5 / v.s;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      const a = Math.atan2(by - ay, bx - ax), hl = .65;
+      ctx.beginPath(); ctx.moveTo(bx, by);
+      ctx.lineTo(bx - hl * Math.cos(a - .5), by - hl * Math.sin(a - .5));
+      ctx.lineTo(bx - hl * Math.cos(a + .5), by - hl * Math.sin(a + .5)); ctx.closePath(); ctx.fill();
+    }
+  }
+
+  _poly(ctx, pts) {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.stroke();
+  }
+
+  // chevrons de sens de marche, tous les 3 m
+  _chevrons(ctx, path, col, v) {
+    const T = this.T, every = 3, sz = .32;
+    let acc = every * .6;
+    ctx.lineWidth = 2 / v.s;
+    for (let i = 1; i < path.length; i++) {
+      const [x0, y0] = path[i - 1], [x1, y1] = path[i];
+      const seg = Math.hypot(x1 - x0, y1 - y0);
+      let t = every - acc;
+      while (t <= seg) {
+        const px = x0 + .5 + (x1 - x0) * t / seg, py = y0 + .5 + (y1 - y0) * t / seg, a = Math.atan2(y1 - y0, x1 - x0);
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const pt = (u, w) => [px + u * ca - w * sa, py + u * sa + w * ca];
+        const [p1, p2, p3] = [pt(-sz * .6, -sz), pt(sz * .6, 0), pt(-sz * .6, sz)];
+        for (const [c, w] of [[T["map-halo"], 4.5], [col, 2]]) {
+          ctx.strokeStyle = c; ctx.lineWidth = w / v.s;
+          ctx.beginPath(); ctx.moveTo(...p1); ctx.lineTo(...p2); ctx.lineTo(...p3); ctx.stroke();
+        }
+        t += every;
+      }
+      acc = (acc + seg) % every;
+    }
+  }
+
+  // parcours d'un tuyau entre deux cellules du bord, en longeant l'extérieur du bâtiment
+  _outsideRun(a, b) {
+    const W = this.W, H = this.H, o = .55;
+    const ring = ([x, y]) => {
+      if (x === 0) return [-o, y + .5];
+      if (x === W - 1) return [W + o, y + .5];
+      if (y === 0) return [x + .5, -o];
+      if (y === H - 1) return [x + .5, H + o];
+      return null;
+    };
+    const ra = ring(a), rb = ring(b);
+    const ca = [a[0] + .5, a[1] + .5], cb = [b[0] + .5, b[1] + .5];
+    if (!ra || !rb) return [ca, cb];
+    // position le long du périmètre (sens horaire depuis le coin nord-ouest)
+    const L = 2 * (W + H + 4 * o);
+    const per = ([x, y]) => {
+      if (y <= -o + 1e-6) return x + o;
+      if (x >= W + o - 1e-6) return (W + 2 * o) + (y + o);
+      if (y >= H + o - 1e-6) return (W + 2 * o) + (H + 2 * o) + (W + o - x);
+      return 2 * (W + 2 * o) + (H + 2 * o) + (H + o - y);
+    };
+    const corners = [[-o, -o], [W + o, -o], [W + o, H + o], [-o, H + o]].map(c => ({ c, t: per(c) % L }));
+    let ta = per(ra), tb = per(rb);
+    const cw = ((tb - ta) % L + L) % L <= L / 2;
+    const pts = [ca, ra];
+    const dist = (t) => cw ? ((t - ta) % L + L) % L : ((ta - t) % L + L) % L;
+    const span = dist(tb);
+    corners.filter(k => dist(k.t) > 0 && dist(k.t) < span).sort((p, q) => dist(p.t) - dist(q.t)).forEach(k => pts.push(k.c));
+    pts.push(rb, cb);
+    return pts;
+  }
+
+  // numéros d'étape et consignes, en coordonnées écran, sans chevauchement
+  _drawMissionLabels(ctx, v) {
+    const m = this._mission; if (!m || !this.layers.paths) return;
+    const T = this.T, placed = [];
+    if (!this.detail) {           // la rose des vents et son texte restent lisibles
+      const { cx, cy, R } = this._roseAt(v);
+      placed.push({ x: cx - R - 40, y: cy - R - 18, w: 2 * R + 80, h: 2 * R + 56 });
+    }
+    const hit = (r) => placed.some(p => r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y);
+    const fit = (r) => r.x >= 2 && r.y >= 2 && r.x + r.w <= this.cssW - 2 && r.y + r.h <= this.cssH - 2;
+    ctx.save();
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.textBaseline = "middle";
+    // dangers sur les itinéraires : petites étiquettes ambre
+    for (const r of m.routes) for (const h of r.hazards) {
+      const [px, py] = this.toScreen(h.at[0] + .5, h.at[1] + .5);
+      ctx.font = `700 11px ${FONT_COND}`;
+      const w = ctx.measureText(h.text).width + 10, hh = 16;
+      const cand = [[px + 8, py - hh - 4], [px - w - 8, py - hh - 4], [px + 8, py + 4], [px - w - 8, py + 4]]
+        .map(([x, y]) => ({ x, y, w, h: hh }));
+      const box = cand.find(b => fit(b) && !hit(b)) || cand[0];
+      placed.push(box);
+      ctx.strokeStyle = withAlpha(T["map-ink"], .7); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(box.x + (box.x > px ? 0 : box.w), box.y + hh / 2); ctx.stroke();
+      ctx.fillStyle = T["chip-warn-bg"]; ctx.fillRect(box.x, box.y, w, hh);
+      ctx.fillStyle = T["chip-warn-tx"]; ctx.textAlign = "left"; ctx.fillText(h.text, box.x + 5, box.y + hh / 2 + 1);
+    }
+    // étapes : pastille numérotée + consigne
+    const fills = { rescue: T["entry"], safety: T["amber"], attack: T["alarm-fill"] };
+    const showSub = v.s >= 14;
+    for (const st of m.steps) {
+      // la pastille se pose au-dessus de la victime ou de l'équipement, sur la position de lance sinon
+      const lift = st.kind === "attack" && !st.noPos ? 0 : 1.15;
+      const [px, py] = this.toScreen(st.x + .5, st.y + .5 - lift);
+      const R = 11;
+      if (this.detail) {                 // loupe : petite carte, pastilles seules (le détail est dans le panneau)
+        ctx.lineWidth = 3; ctx.strokeStyle = T["map-halo"]; ctx.fillStyle = fills[st.kind];
+        ctx.beginPath(); ctx.arc(px, py, R, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = st.kind === "safety" ? T["chip-warn-tx"] : T["on-accent"];
+        ctx.font = `700 13px ${FONT_COND}`; ctx.textAlign = "center";
+        ctx.fillText(String(st.n), px, py + 1);
+        continue;
+      }
+      ctx.font = `700 13px ${FONT_COND}`;
+      const tw = ctx.measureText(st.title).width;
+      ctx.font = `500 11px ${FONT_COND}`;
+      const sw = showSub ? ctx.measureText(st.sub).width : 0;
+      const w = Math.max(tw, sw) + 14, h = showSub ? 34 : 20;
+      const cand = [[px + R + 4, py - h / 2], [px - R - 4 - w, py - h / 2], [px - w / 2, py - R - 4 - h], [px - w / 2, py + R + 4]]
+        .map(([x, y]) => ({ x, y, w, h }));
+      const box = cand.find(b => fit(b) && !hit(b)) || cand.find(fit) || cand[0];
+      placed.push(box, { x: px - R, y: py - R, w: 2 * R, h: 2 * R });
+      ctx.fillStyle = T["map-tag-bg"]; ctx.fillRect(box.x, box.y, w, h);
+      ctx.fillStyle = fills[st.kind]; ctx.fillRect(box.x, box.y, 3, h);
+      ctx.textAlign = "left";
+      ctx.font = `700 13px ${FONT_COND}`; ctx.fillStyle = T["map-tag-tx"];
+      ctx.fillText(st.title, box.x + 9, box.y + (showSub ? 11 : h / 2 + 1));
+      if (showSub) {
+        ctx.font = `500 11px ${FONT_COND}`; ctx.fillStyle = withAlpha(T["map-tag-tx"], .78);
+        ctx.fillText(st.sub, box.x + 9, box.y + 25);
+      }
+      ctx.lineWidth = 3; ctx.strokeStyle = T["map-halo"]; ctx.fillStyle = fills[st.kind];
+      ctx.beginPath(); ctx.arc(px, py, R, 0, 7); ctx.fill(); ctx.stroke();
+      if (st.urgent) { ctx.strokeStyle = T["alarm"]; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(px, py, R + 3, 0, 7); ctx.stroke(); }
+      ctx.fillStyle = st.kind === "safety" ? T["chip-warn-tx"] : T["on-accent"];
+      ctx.font = `700 13px ${FONT_COND}`; ctx.textAlign = "center";
+      ctx.fillText(String(st.n), px, py + 1);
+    }
+    ctx.restore();
   }
 
   // trajectoire du drone : une seule ligne de vol lissée (Catmull-Rom centripète) passant
@@ -615,6 +904,7 @@ class MapView {
       const x = vi.x + .5, y = vi.y + .5;
       const age = (now - this._victimSeen.get(vi.id)) / 1000;
       if (!REDUCED_MOTION && age < 1.4) {            // une impulsion à l'apparition
+        this._animUntil = Math.max(this._animUntil, now + 50);
         ctx.strokeStyle = withAlpha(T["map-ink"], 0.9 * (1 - age / 1.4)); ctx.lineWidth = 2 / v.s;
         ctx.beginPath(); ctx.arc(x, y, .5 + age * 2.2, 0, 7); ctx.stroke();
       }
@@ -635,6 +925,7 @@ class MapView {
     const dx = tx - this.drone.x, dy = ty - this.drone.y;
     if (Math.hypot(dx, dy) > 6) { this.drone.x = tx; this.drone.y = ty; }
     this.drone.x += dx * k; this.drone.y += dy * k;
+    if (Math.hypot(dx, dy) > .01) this._animUntil = Math.max(this._animUntil, now + 50);
     if (Math.hypot(dx, dy) > .05) {
       let diff = Math.atan2(dy, dx) - this.droneHeading;
       while (diff > Math.PI) diff -= 2 * Math.PI;
@@ -692,6 +983,7 @@ class MapView {
       if (z.level === "NORMAL" || !z.top || !z.top.length) continue;
       const r = z.top[0];
       const val = Tween.get("chip" + zid, r.value);
+      if (val !== r.value) this._animUntil = Math.max(this._animUntil, performance.now() + 50);
       const txt = `${r.label} ${U.fmt(val)} ${r.unit}${r.trend === "up" ? " ▲" : ""}`;
       const danger = z.level === "DANGER";
       this._chip(ctx, txt, (r.x + .5) * v.s, (r.y - .35) * v.s, danger ? T["alarm-fill"] : T["chip-warn-bg"],
@@ -720,6 +1012,7 @@ class MapView {
     if (z && z.top) {
       z.top.forEach((r, i) => {
         const val = Tween.get("lbl" + this.focusZone + r.type, r.value);
+        if (val !== r.value) this._animUntil = Math.max(this._animUntil, performance.now() + 50);
         const txt = `${r.label} ${U.fmt(val)} ${r.unit}${r.trend === "up" ? " ▲" : r.trend === "down" ? " ▼" : ""}`;
         const px = (r.x + .5) * v.s, py = (r.y + .5) * v.s;
         const ly = py - 26 - i * 4;
@@ -745,6 +1038,13 @@ class MapView {
     ctx.fillText(txt, x, py + 1);
   }
 
+  // centre et rayon de la rose des vents, en coordonnées écran
+  _roseAt(v) {
+    const R = 27, right = v.ox + this.W * v.s, margin = this.cssW - right;
+    const inMargin = margin >= 2 * R + 14;
+    return { R, cx: inMargin ? right + margin / 2 : this.cssW - R - 14, cy: inMargin ? v.oy + R + 14 : R + 16 };
+  }
+
   // échelle 5 m et rose des vents (vue globale seulement), en coordonnées écran
   _overlays(ctx, s, v) {
     const T = this.T;
@@ -761,10 +1061,7 @@ class MapView {
     ctx.fillText("5 m", x0 + L + 6, y0 + 2);
 
     // rose des vents : nord en haut, flèche = direction VERS laquelle souffle le vent
-    const R = 27, right = v.ox + this.W * v.s, margin = this.cssW - right;
-    const inMargin = margin >= 2 * R + 14;
-    const cx = inMargin ? right + margin / 2 : this.cssW - R - 14;
-    const cy = inMargin ? v.oy + R + 14 : R + 16;
+    const { cx, cy, R } = this._roseAt(v);
     ctx.fillStyle = withAlpha(T["map-bg"], .85); ctx.strokeStyle = T["map-ink-2"]; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill(); ctx.stroke();
     for (let i = 0; i < 8; i++) {

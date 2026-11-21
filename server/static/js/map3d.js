@@ -522,8 +522,9 @@ class View3DImpl {
     }
     if (key("fire", [[...Lv.fireNow].sort(), Lv.burnt.size])) {
       const n = fire.length;
-      const per = n ? Math.max(4, Math.min(28, Math.floor(FIRE_MAX / n))) : 0;
-      const total = Math.min(FIRE_MAX, n * per);
+      const budget = Math.floor(FIRE_MAX * (this.fireBudget || 1));
+      const per = n ? Math.max(3, Math.min(28, Math.floor(budget / n))) : 0;
+      const total = Math.min(budget, n * per);
       const pos = this.firePts.geometry.attributes.position;
       for (let i = 0; i < total; i++) {
         const [x, y] = fire[i % n];
@@ -975,7 +976,21 @@ class View3DImpl {
     const loop = (now) => {
       this.raf = requestAnimationFrame(loop);
       try {
-        const dt = Math.min(0.1, this.clock.getDelta());
+        const raw = this.clock.getDelta();
+        const dt = Math.min(0.1, raw);
+        // ordinateur lent (pas de carte graphique) : on allège le rendu pour garder la page réactive
+        const pf = this._perf || (this._perf = { acc: 0, n: 0, level: 0 });
+        if (raw < 0.5) { pf.acc += raw; pf.n++; }   // ignore le retour d'un onglet caché
+        if (pf.n >= 90) {
+          if (pf.acc / pf.n > 0.034 && pf.level < 2) {
+            pf.level++;
+            this.renderer.setPixelRatio(pf.level === 1 ? 1 : 0.75);
+            this.fireBudget = pf.level === 1 ? 0.6 : 0.35;
+            this.keys.fire = null;
+            this.resize();
+          }
+          pf.acc = 0; pf.n = 0;
+        }
         const t = this.clock.elapsedTime;
         const s = G().s;
         if (this.world && s) this._sync(s, now, t, dt);

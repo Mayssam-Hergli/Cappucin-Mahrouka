@@ -77,7 +77,18 @@ const Live = {
   async post(url, data) {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data || {}) });
-    return r.json().catch(() => ({}));
+    const out = await r.json().catch(() => ({}));
+    this.refresh();          // l'écran montre tout de suite le résultat du clic
+    return out;
+  },
+
+  // relecture immédiate de l'état (en plus de la boucle de 500 ms)
+  async refresh() {
+    try {
+      const s = await (await fetch("/api/state", { cache: "no-store" })).json();
+      this._ingest(s);
+      this.ok = true;
+    } catch (e) { /* la boucle normale réessaiera */ }
   },
 };
 window.Live = Live;   // lu par la vue 3D (module ES, map3d.js)

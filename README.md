@@ -22,6 +22,7 @@ Built for the Tunisian Aeroday hackathon, *Protection Civile* challenge: use aer
 10. [Prototype vs. real product](#prototype-vs-real-product)
 11. [Hardware](#hardware)
 12. [Safety and limits](#safety-and-limits)
+13. [License and credits](#license-and-credits)
 
 ---
 
@@ -131,8 +132,8 @@ Each folder has its own `README.md` with the details of that part.
 ### Install
 
 ```bash
-git clone https://github.com/Mayssam-Hergli/Hrika.git
-cd Hrika
+git clone https://github.com/Mayssam-Hergli/Cappucin-Mahrouka.git
+cd Cappucin-Mahrouka
 python -m venv .venv
 # Windows: .venv\Scripts\activate    macOS / Linux: source .venv/bin/activate
 pip install -r requirements.txt
@@ -325,7 +326,17 @@ Example (fire on the cardboard pallets next to victim V4): with no action, 5 m²
 
 ## The AI model
 
-A **YOLOv8n** person detector fine-tuned on a public dataset of **real thermal images**. YOLOv8n is small and fast enough for a drone's onboard computer. The training notebook, weights, metrics (precision, recall, mAP@50, confusion matrix, example detections) and the full model report are in [`ai/`](ai/).
+A **YOLOv8n** person detector fine-tuned on **8,778 real thermal images**. YOLOv8n is small and fast enough for a drone's onboard computer: 3.1 M parameters, a 6.5 MB file, about 8 images per second on a normal laptop CPU without a graphics card.
+
+Results on 1,317 test images it never saw during training:
+
+| | Our model | Same model before thermal training |
+|---|---|---|
+| mAP@50 | **93.8 %** | 34.9 % |
+| Precision at the drone's threshold (confidence ≥ 0.5) | **94.1 %** | |
+| Recall at the drone's threshold | **82.9 %** | |
+
+The training notebook, weights, metrics, confusion matrix, example detections and the full model report ([`ai/REPORT.md`](ai/REPORT.md)) are in [`ai/`](ai/).
 
 In the live demo, the laptop webcam stands in for the thermal camera. A pretrained detector finds the person, and the image is recoloured so that it looks thermal. We say this openly: the model itself is trained and tested on real thermal images.
 
@@ -363,3 +374,8 @@ The node decides `NORMAL` / `WARNING` / `ALARM` from thresholds **and the rate o
 - MQ gas sensors need **20+ minutes of warm-up** before their readings mean anything.
 - The drone and its thermal camera are simulated in this prototype. The fire model is simplified and not calibrated on real fire data yet.
 - Every plan is a **recommendation**. The commander makes the decision.
+
+## License and credits
+
+- **Code and trained model:** [GNU AGPL-3.0](LICENSE). We use [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics), which is AGPL-3.0, and models trained with it follow the same licence.
+- **Thermal training data:** *PersonDection* by SMART2 ([Roboflow Universe](https://universe.roboflow.com/smart2/persondection-61bc2)), distributed as [`Voxel51/Thermal-Person-Detector`](https://huggingface.co/datasets/Voxel51/Thermal-Person-Detector) on Hugging Face, under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

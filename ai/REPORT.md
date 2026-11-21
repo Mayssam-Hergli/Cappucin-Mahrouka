@@ -40,8 +40,9 @@ Bigger models (YOLOv8s/m) would likely be a bit more accurate, but 3–10× heav
 
 | | |
 |---|---|
-| Source | [`Voxel51/Thermal-Person-Detector`](https://huggingface.co/datasets/Voxel51/Thermal-Person-Detector) on Hugging Face, loaded with FiftyOne |
-| Images | **8,778 real thermal images** |
+| Source | *PersonDection* by **SMART2**, published on [Roboflow Universe](https://universe.roboflow.com/smart2/persondection-61bc2) (2023), redistributed as [`Voxel51/Thermal-Person-Detector`](https://huggingface.co/datasets/Voxel51/Thermal-Person-Detector) on Hugging Face. We loaded it with FiftyOne. |
+| Licence | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): free to use, with credit to the authors (given here and in the main README) |
+| Images | **8,778 real thermal images**, 640 × 640 pixels |
 | Labels | **18,695 boxes**, one class: `person` (about 2.1 people per image) |
 | Content | Thermal images rendered both in false colours and in greyscale, with people at different distances, alone or in groups |
 
@@ -124,7 +125,31 @@ The model works on both false-colour and greyscale thermal images, and finds sma
 | NVIDIA T4 GPU (Colab) | 4.2 ms (inference only) | about 240 |
 | Colab CPU (no GPU) | 147 ms | **6.8** |
 
-Even on a weak cloud CPU with no GPU, the model handles about 7 images per second, which is enough for a slow indoor flight. Small embedded AI boards with a GPU are expected to be much faster, but **we did not measure one**: that is a next step.
+Even on a weak cloud CPU with no GPU, the model handles about 7 images per second, which is enough for a slow indoor flight.
+
+### 5.5 Does it run on cheap hardware?
+
+A drone kit must stay affordable for factories, so we checked that the model does **not** need an expensive AI card. We measured it on an ordinary laptop processor (Intel CPU, 4 threads, no graphics card):
+
+| Input size | Computation | Time per image | Images per second |
+|---|---|---|---|
+| 640 × 640 (as trained) | 8.7 GFLOPs | 127 ms | **7.9** |
+| 416 × 416 | 3.7 GFLOPs | 71 ms | 14.1 |
+| 320 × 320 | 2.2 GFLOPs | 54 ms | **18.6** |
+| 160 × 160 | 0.5 GFLOPs | 31 ms | 32.2 |
+
+*Only the speed was measured at the smaller sizes. The model was trained at 640, so its accuracy at 320 or 416 still has to be tested.*
+
+What this means for the product:
+
+| Where the AI runs | Rough compute cost | Verdict |
+|---|---|---|
+| ESP32 microcontroller | a few dollars | **No.** About 0.5 MB of memory and a few billion operations per image are far beyond it. An ESP32 is right for the fixed sensor nodes, not for this model. |
+| Single-board computer on the drone (Raspberry Pi 5 class, or a board with a small AI chip / NPU) | about $80–100 | **Yes, our target.** The AI keeps working even if the radio link is lost inside the building. Speed to be measured on the board. |
+| Commander's laptop or tablet in the truck; the drone streams its video | $0 extra | **Yes, cheapest.** Depends on the radio link, which is weak inside buildings. |
+| Dedicated AI board (NVIDIA Jetson class) | $250–500+ | **Not needed** for a model this small. |
+
+*Prices are rough estimates.* The most expensive part of the drone is not the computer but the **thermal camera** (small modules of 160 × 120 to 256 × 192 pixels cost roughly $200–400). Our training images are 640 × 640, so the model will need to be fine-tuned on images from the chosen camera.
 
 ## 6. How it is used in our product, and what the demo shows
 
@@ -152,8 +177,9 @@ We prefer to state them clearly:
 2. **Split by video sequence** to get honest scores on truly new scenes.
 3. **Add fire-scene data:** thermal images of factories, hot machines and smoke, including "hard negatives" (hot objects that are not people).
 4. **Track people across frames** (count a person once they are seen in several images) to raise recall and stop repeated alerts.
-5. **Export the model** (ONNX / TensorRT), try smaller input sizes (320–416 px), and **measure it on a real embedded board.**
-6. **Add a second class, fire / hot spot,** so the drone also maps where the fire is.
+5. **Test accuracy at 320–416 px** (2.3× faster at 320), export the model (ONNX), and **measure it on a ~$100 single-board computer.**
+6. **Fine-tune on the chosen thermal camera's images** (lower resolution than our 640 × 640 training data).
+7. **Add a second class, fire / hot spot,** so the drone also maps where the fire is.
 
 ## 9. Reproduce
 
@@ -166,3 +192,8 @@ from ultralytics import YOLO
 model = YOLO("ai/weights/best.pt")
 model.predict("thermal_image.jpg", conf=0.5, save=True)
 ```
+
+## 10. Licence and credits
+
+- **Training data:** *PersonDection* by SMART2, [Roboflow Universe](https://universe.roboflow.com/smart2/persondection-61bc2), 2023, via [`Voxel51/Thermal-Person-Detector`](https://huggingface.co/datasets/Voxel51/Thermal-Person-Detector). Licence: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- **Model and training code:** [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics), AGPL-3.0. Our trained weights and code are released under the same licence ([`LICENSE`](../LICENSE)).

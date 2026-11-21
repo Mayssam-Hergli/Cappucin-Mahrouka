@@ -9,12 +9,14 @@ The factory's fixed sensor. It starts the whole scenario.
 - DHT22 / DHT11 temperature sensor
 - Flame sensor (optional)
 - Buzzer + green / yellow / red LEDs
+- OLED 0.96" I2C screen (SSD1306, 128×64): SDA → GPIO 21, SCL → GPIO 22, VCC → 3.3V
 
 ## Behaviour
 
 - Reads gas, temperature (and how fast it rises) and the flame sensor.
 - Decides `NORMAL` / `WARNING` / `ALARM` from thresholds and the rate of rise, so a warm hand does not cause a false alarm.
 - Drives the LEDs and the buzzer locally. The local alarm keeps working if the WiFi drops.
+- Shows its status on the OLED (node, zone, WiFi, level, gas, temperature) plus a message line set by `OLED_MESSAGE` in the settings (placeholder for now). Without the screen, the node keeps working.
 - Every second, sends:
 
 ```
@@ -37,13 +39,14 @@ The same firmware runs in the [Wokwi](https://wokwi.com) ESP32 simulator, with a
 |---|---|
 | [`hrika_node/hrika_node.ino`](hrika_node/hrika_node.ino) | `sketch.ino` |
 | [`wokwi/diagram.json`](wokwi/diagram.json) | `diagram.json` |
-| [`wokwi/libraries.txt`](wokwi/libraries.txt) | `libraries.txt` (`DHT sensor library` + `Adafruit Unified Sensor`) |
+| [`wokwi/libraries.txt`](wokwi/libraries.txt) | `libraries.txt` (`DHT sensor library`, `Adafruit Unified Sensor`, `Adafruit GFX Library`, `Adafruit SSD1306`) |
 
 Press Play, then click a sensor to move its slider:
 
 - Raise the gas ppm, and the node goes `WARNING` then `ALARM (gas)`.
 - Raise the temperature fast (+5 °C in 10 s), and you get `ALARM (temp)`, even below 50 °C.
 - Raise it slowly (a warm hand), and it stays `NORMAL`.
+
 The simulated ESP32 reaches the internet through Wokwi, so it cannot reach a private `192.168.x.x` address. Expose the server with a tunnel (`cloudflared tunnel --url http://localhost:5000`) and set `SERVER_URL` to `https://<tunnel>.trycloudflare.com/api/sensor`.
 
 ## Flash

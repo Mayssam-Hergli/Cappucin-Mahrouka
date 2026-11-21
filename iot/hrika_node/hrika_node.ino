@@ -8,6 +8,9 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include "DHT.h"   // Adafruit "DHT sensor library" (+ "Adafruit Unified Sensor")
+#include <Wire.h>
+#include <Adafruit_GFX.h>      // "Adafruit GFX Library"
+#include <Adafruit_SSD1306.h>  // "Adafruit SSD1306" (0.96" I2C OLED, 128x64)
 
 // ===================== SETTINGS (change these) =====================
 const bool  IN_WOKWI   = true;            // false on the real ESP32
@@ -21,6 +24,9 @@ const char* SERVER_URL = "https://webhook.site/REPLACE-ME";
 const char* NODE_ID    = "N1";            // must match sim/factory.json
 const char* ZONE_ID    = "Z2";            // must match sim/factory.json
 
+// OLED screen: message shown at the bottom (placeholder - put your text here, ~40 characters max)
+const char* OLED_MESSAGE = "Votre message ici";
+
 // Pins
 const int PIN_GAS        = 34;  // analog (ADC1, works with WiFi on)
 const int PIN_FLAME      = 27;  // digital
@@ -30,6 +36,8 @@ const int PIN_LED_YELLOW = 26;
 const int PIN_LED_RED    = 33;
 const int PIN_BUZZER     = 32;
 const bool FLAME_ACTIVE_LOW = true;  // most flame modules read LOW when they see a flame
+// OLED uses the ESP32's default I2C pins: SDA = GPIO 21, SCL = GPIO 22
+const int OLED_ADDRESS   = 0x3C;
 
 // Thresholds (tune after watching the Serial Monitor)
 // (Wokwi's gas sensor maxes out between +300 and +800 above baseline, so keep ALARM well below that)
@@ -42,6 +50,8 @@ const int   RISE_WINDOW_S     = 10;    // ... within this many seconds = fire-li
 // ===================================================================
 
 DHT dht(PIN_DHT, DHT22);
+Adafruit_SSD1306 oled(128, 64, &Wire, -1);
+bool oledOk = false;
 int   gasBaseline = 0;
 float lastTemp = 20.0;
 float tempHistory[RISE_WINDOW_S + 1];
@@ -130,8 +140,38 @@ void sendReading(int rawGas, float temp, int flame) {
   http.end();
 }
 
+// OLED layout (128x64):
+//   Hrika N1 Z2      WiFi
+//   ALARM            (big)
+//   Gaz 1500  T 24.0C
+//   <OLED_MESSAGE, up to 2 lines>
+void showOled(const char* bigText, int gas, float temp) {
+  if (!oledOk) return;
+  oled.clearDisplay();
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setTextSize(1);
+  oled.setCursor(0, 0);
+  oled.printf("Hrika %s %s", NODE_ID, ZONE_ID);
+  oled.setCursor(98, 0);
+  oled.print(WiFi.status() == WL_CONNECTED ? "WiFi" : "----");
+  oled.setTextSize(2);
+  oled.setCursor(0, 12);
+  oled.print(bigText);
+  oled.setTextSize(1);
+  oled.setCursor(0, 32);
+  if (gas >= 0) oled.printf("Gaz %d  T %.1fC", gas, temp);
+  oled.drawFastHLine(0, 42, 128, SSD1306_WHITE);
+  oled.setCursor(0, 46);
+  oled.print(OLED_MESSAGE);  // wraps to the next line by itself
+  oled.display();
+}
+
 void setup() {
   Serial.begin(115200);
+  Wire.begin();  // SDA 21, SCL 22
+  oledOk = oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS);
+  if (!oledOk) Serial.println("OLED not found - the node keeps working without it");
+  showOled("DEMARRAGE", -1, 0);
   pinMode(PIN_FLAME, INPUT);
   pinMode(PIN_LED_GREEN, OUTPUT);
   pinMode(PIN_LED_YELLOW, OUTPUT);
@@ -185,6 +225,7 @@ void loop() {
 
   Serial.printf("gas=%d (base %d)  temp=%.1fC  rise=%.1fC/%ds  flame=%d  => %s (%s)\n",
                 gas, gasBaseline, lastTemp, rise, RISE_WINDOW_S, flame, level, cause);
+  showOled(level, gasForServer(gas), lastTemp);
 
   if (WiFi.status() != WL_CONNECTED) WiFi.reconnect();
   sendReading(gas, lastTemp, flame);

@@ -15,6 +15,7 @@ Helpers for the server and the dashboard (additions, they change nothing above):
     sim.forecast(minutes=5)         # where the fire will be, for the EN_ROUTE phase
     sim.guidance("V1")              # exit, distance and the French sentence for the voice
     sim.set_drone_temp(temp)        # a real temperature reading for the drone (optional)
+    sim.heat_drone(delta)           # demo button: the drone gets hotter (returns at 60 °C)
 
 Every public method holds a lock, so the server can call step() from a
 background thread while request handlers call the other methods.
@@ -36,7 +37,7 @@ VICTIM_STATUSES = {"walking", "injured", "no_answer"}
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(PACKAGE_DIR)
 PUBLIC_MAP_KEYS = ("name", "cell_size_m", "legend", "grid", "zones", "exits",
-                   "sensors", "hydrants", "gas_valves", "power_cutoffs")
+                   "sensors", "hydrants", "gas_valves", "power_cutoffs", "equipment")
 
 
 def _resolve(path):
@@ -218,6 +219,13 @@ class Sim:
                 "doors": doors,
                 "say": f"{hello} {middle}",   # the drone only speaks, it does not ask anything
             }
+
+    def heat_drone(self, delta):
+        """Add `delta` °C to the drone (the dashboard's demo buttons). If that reaches
+        the return temperature, the drone starts returning at once."""
+        with self._lock:
+            if self.drone is not None:
+                self.drone.add_heat(delta)
 
     def set_drone_temp(self, temp):
         """Use a real temperature reading for the drone (for example an ESP32 + DHT22

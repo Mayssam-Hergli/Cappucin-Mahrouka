@@ -49,10 +49,7 @@ def legend_handles():
         patch("#8a8a8a", "smoke"),
         patch("#d6e6f0", "explored by the drone"),
         marker("#1c7ed6", "drone", shape="D", edge="white"),
-        marker(VICTIM_COLOURS["injured"], "victim: injured"),
-        marker(VICTIM_COLOURS["walking"], "victim: can walk"),
-        marker(VICTIM_COLOURS["no_answer"], "victim: no answer"),
-        marker(VICTIM_COLOURS["unknown"], "victim: being spoken to"),
+        marker(VICTIM_COLOURS["unknown"], "victim found: rescue first"),
         Line2D([], [], color="#2e9e44", linewidth=2, label="evacuation path"),
         Line2D([], [], color="#1c7ed6", linewidth=2, linestyle="--", label="firefighters' entry"),
         patch("#c92a2a", "attack: order, agent, side"),
@@ -66,7 +63,7 @@ def main():
     os.makedirs(args.out, exist_ok=True)
 
     sc = Scenario(SimpleNamespace(map=DEFAULT_MAP, seed=42, wind=None, origin=None, entry=None,
-                                  launch_at=20, no_voice=False))
+                                  launch_at=20, answers=False))
     sim = sc.sim
     titles = [TITLES[0].format(m=FORECAST_MIN), TITLES[1], TITLES[2]]
 
@@ -114,7 +111,7 @@ def main():
     facts["entry_door"] = st["plans"]["entry"]["door"]
     facts["extinguish"] = st["plans"]["extinguish"]
 
-    story.legend(handles=legend_handles(), loc="lower center", ncol=7, fontsize=9, frameon=False)
+    story.legend(handles=legend_handles(), loc="lower center", ncol=6, fontsize=9, frameon=False)
     story.tight_layout(rect=(0, 0.13, 1, 1))
     story.savefig(os.path.join(args.out, "simulation_story.png"), dpi=150)
     for i, fig in enumerate(singles, 1):

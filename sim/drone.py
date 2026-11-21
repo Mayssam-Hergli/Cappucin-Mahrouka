@@ -85,6 +85,14 @@ class Drone:
         found += self.scan(victims)
         return found
 
+    def add_heat(self, delta):
+        """A sudden rise in temperature (demo button). Returns at once if it reaches return_temp."""
+        if self.state == OUT:
+            return
+        self.temp += float(delta)
+        if self.state == EXPLORING and self.temp >= self.return_temp:
+            self._start_return("heat")
+
     def scan(self, victims):
         """Mark every cell within thermal range as seen; return the ids of newly found victims."""
         seen_now = {(self.x, self.y)}

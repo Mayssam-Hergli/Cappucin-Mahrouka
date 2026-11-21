@@ -162,7 +162,7 @@ python -m sim.viewer --origin 34 20 --wind 10 270 --entry E2  # fire origin, win
 python -m sim.viewer --save run.png --steps 20 60 100 130     # snapshots side by side
 ```
 
-This plays the whole scenario: the fire, smoke and gas spread, the drone is launched after a short forecast, explores, finds victims (who answer automatically), and the three plans are drawn on the map.
+This plays the whole scenario: the fire, smoke and gas spread, the drone is launched after a short forecast, explores, finds and speaks to victims, and the three plans are drawn on the map. Add `--answers` to simulate the commander marking who can walk.
 
 ## Shared contract
 
@@ -177,7 +177,8 @@ Every part depends on this contract. **Do not change it without telling the whol
 | `POST` | `/api/drone/launch` | Dashboard | `{entry: "E2"}` |
 | `POST` | `/api/vision` | Vision script | `{person: true, conf: 0.87, jpg: "<base64 320x240 JPEG>"}` |
 | `GET` | `/api/voice/next` | Voice script (polls every 1 s) | `{victim: "V1", say: "..."}` or `{}` |
-| `POST` | `/api/voice` | Voice script | `{victim, heard, status: walking\|injured\|no_answer}` |
+| `POST` | `/api/voice` | Optional: a voice script that listens (the current one only speaks) | `{victim, heard, status: walking\|injured\|no_answer}` |
+| `POST` | `/api/victim/status` | Dashboard: the commander sets a victim's state | `{victim, status: walking\|injured\|no_answer}` |
 | `GET` | `/api/state` | Dashboard (polls every 500 ms) | the full state, below |
 
 Example sensor payload:
@@ -252,7 +253,7 @@ See [`sim/README.md`](sim/README.md#how-the-server-uses-it) for how each phase c
 | Coordinates | `x` = column (0–39), `y` = row (0–24), origin at the **top-left**. 1 cell = 1 m. |
 | Wind direction | `deg` = the direction the wind **blows toward**: 0 = north (up), 90 = east (right), 180 = south, 270 = west. |
 | Time | Each `step()` advances simulated time by a fixed amount (demo-accelerated). `t` is in simulated seconds. |
-| Victims | `state()["victims"]` lists every victim. Only those with `found: true` are known to the commander and drawn on the map. A victim's `status` is `unknown` until they answer the drone, then `walking`, `injured` or `no_answer`. |
+| Victims | `state()["victims"]` lists every victim. Only those with `found: true` are known to the commander and drawn on the map. A victim's `status` is `unknown` (the drone speaks to victims but does not listen), until the commander sets `walking`, `injured` or `no_answer` on the dashboard. |
 | Drone | `state()["drone"]` is `null` until `launch_drone()` is called. |
 | Fire origin | `start_fire(x, y)` returns the cell it actually used: a click on a wall moves to the nearest open cell. |
 | Victim from the webcam | `add_victim_here(conf)` returns the id of a **newly** found or created victim, so the server can queue the voice message. It returns `null` if the drone is not inside, or if that person is already known (no duplicate on the map, no second voice message). |
@@ -296,7 +297,7 @@ Each `step()` is 2 simulated seconds. Stored goods burn for several minutes, so 
 
 - It enters by the chosen exit door and flies at **1 m/s**. It always heads for the unexplored cell that is cheapest to reach, so it avoids heat and never flies through flames.
 - Its thermal range is **3 cells**, and walls block the view. Every victim within that range is revealed and placed on the map.
-- When it finds a victim, it **hovers to talk to them** until they answer, or for 8 seconds at most.
+- When it finds a victim, it **hovers for 8 seconds** while it speaks to them (safest exit, help is on its way).
 - Its temperature follows the radiant heat and the hot smoke around it. **At 60 °C** it switches to `RETURNING`, follows the safest path to the nearest exit, then becomes `OUT`. It also returns once the whole building is explored.
 
 ### Safest path (A*)
@@ -310,7 +311,7 @@ burning cells are blocked
 
 | Plan | How it is computed |
 |---|---|
-| **Evacuation** | For each victim found, the safest path to an exit (the lowest A* cost, not simply the nearest door). A victim who is `injured`, gives `no_answer`, has not answered yet, or has no safe way out gets `rescue_first = true`. |
+| **Evacuation** | For each victim found, the safest path to an exit (the lowest A* cost, not simply the nearest door). A victim who is `injured`, gives `no_answer`, whose state is still `unknown`, or who has no safe way out gets `rescue_first = true`. Only a victim the commander marks `walking` is guided out alone. |
 | **Entry** | The exit door whose paths to all the victims found are the safest in total. The path shown leads to the first victim to reach. Before any victim is found, it leads to the edge of the fire. |
 | **Extinguishing** | For each burning zone, the agent depends on the fire class: A → water, B → foam, C (gas) → powder, electrical → CO₂. Close the gas valve first if gas bottles burn or are next to the fire, and cut the power first if an electrical cabinet does. Firefighters attack upwind (wind at their back) and from the side away from any victim close to the fire. Order: first the fires that threaten a victim or an evacuation path, then the solvent and gas stores (explosion risk), then the largest. |
 
@@ -318,7 +319,7 @@ The plans are recomputed at every step, so they follow the fire live.
 
 ### Testing the attack options (look-ahead)
 
-The rule above says which sides are allowed. The simulator then **tests them**: on copies of the grid, it runs the fire 3 minutes ahead with no attack, and with one attack team from each allowed side, knocking down 0.25 m² per second from that side. It keeps the side that leaves the least fire near the victims and their evacuation paths, then the least fire overall. The test runs again every 10 seconds, or as soon as a new zone catches fire, a victim is found or answers, or the wind changes.
+The rule above says which sides are allowed. The simulator then **tests them**: on copies of the grid, it runs the fire 3 minutes ahead with no attack, and with one attack team from each allowed side, knocking down 0.25 m² per second from that side. It keeps the side that leaves the least fire near the victims and their evacuation paths, then the least fire overall. The test runs again every 10 seconds, or as soon as a new zone catches fire, a victim is found or their state changes, or the wind changes.
 
 Example (fire on the cardboard pallets next to victim V4): with no action, 5 m² of fire reach V4's surroundings within 3 minutes; with the chosen attack from the east, none do.
 

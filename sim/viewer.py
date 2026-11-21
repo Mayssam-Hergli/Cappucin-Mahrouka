@@ -5,9 +5,9 @@
     python -m sim.viewer --save fire.png --steps 0 40 80 120    # snapshots side by side
 
 Timeline: the fire starts at step 0, the forecast runs while the team drives,
-the drone is launched at --launch-at, and victims "answer" the drone a few
-steps after they are found (walking, injured or no answer), as the voice
-script would.
+the drone is launched at --launch-at and speaks to each victim it finds.
+With --answers, the commander "marks" each victim a few steps after it is
+found (walking, injured or no answer), as they would on the dashboard.
 """
 
 import argparse
@@ -48,7 +48,7 @@ class Scenario:
         self.sim.start_fire(*(args.origin or demo.get("origin", [20, 5])))
         self.entry = args.entry or demo.get("entry", "E1")
         self.launch_at = args.launch_at
-        self.auto_voice = not args.no_voice
+        self.auto_voice = args.answers
         self.n = 0
         self.trail = []
         self._answer_at = {}
@@ -174,7 +174,7 @@ def main():
     p.add_argument("--wind", type=float, nargs=2, metavar=("KMH", "DEG"), help="speed and direction it blows toward")
     p.add_argument("--entry", help="exit door the drone enters by (E1, E2, E3)")
     p.add_argument("--launch-at", type=int, default=20, help="step at which the drone is launched")
-    p.add_argument("--no-voice", action="store_true", help="victims never answer")
+    p.add_argument("--answers", action="store_true", help="simulate the commander marking each victim's state")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--steps", type=int, nargs="+", default=[0, 40, 80, 120],
                    help="with --save: the steps to show side by side")

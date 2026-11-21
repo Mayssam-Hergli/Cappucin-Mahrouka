@@ -45,9 +45,9 @@
     {"id": "Z4", "name": "Solvent and gas store",  "name_fr": "le stockage solvants et gaz",   "rect": [28, 10, 38, 23]}
   ],
   "exits": [
-    {"id": "E1", "x": 0,  "y": 4,  "side": "W"},
-    {"id": "E2", "x": 14, "y": 24, "side": "S"},
-    {"id": "E3", "x": 39, "y": 5,  "side": "E"}
+    {"id": "E1", "x": 0,  "y": 4,  "side": "W", "name": "Sortie Ouest (bureaux)"},
+    {"id": "E2", "x": 14, "y": 24, "side": "S", "name": "Sortie Sud (atelier)"},
+    {"id": "E3", "x": 39, "y": 5,  "side": "E", "name": "Sortie Est (stockage)"}
   ],
   "sensors": [
     {"id": "N1", "zone": "Z2", "x": 24, "y": 5},
@@ -72,6 +72,21 @@
   ],
   "power_cutoffs": [
     {"id": "PW1", "zone": "Z3", "x": 1, "y": 23}
+  ],
+  "equipment": [
+    {"type": "electric",     "x": 11, "y": 1,  "label": "Tableau électrique bureaux"},
+    {"type": "electric",     "x": 1,  "y": 20, "label": "Armoire électrique atelier"},
+    {"type": "electric",     "x": 1,  "y": 23, "label": "Coupure générale PW1"},
+    {"type": "metal",        "x": 6,  "y": 12, "label": "Presse hydraulique"},
+    {"type": "metal",        "x": 17, "y": 12, "label": "Tour"},
+    {"type": "metal",        "x": 6,  "y": 17, "label": "Presse"},
+    {"type": "metal",        "x": 17, "y": 17, "label": "Fraiseuse"},
+    {"type": "solvent",      "x": 33, "y": 11, "label": "Fûts de solvants"},
+    {"type": "gas",          "x": 36, "y": 20, "label": "Bouteilles de gaz"},
+    {"type": "valve",        "x": 38, "y": 23, "label": "Vanne gaz GV1"},
+    {"type": "extinguisher", "x": 12, "y": 8,  "label": "Extincteur CO₂"},
+    {"type": "extinguisher", "x": 26, "y": 10, "label": "Extincteur eau"},
+    {"type": "extinguisher", "x": 28, "y": 23, "label": "Extincteur poudre"}
   ],
   "demo": {
     "origin": [22, 3],

@@ -66,7 +66,7 @@ sim = Sim("sim/factory.json")   # works whatever folder the server is started fr
 | `ALERT` | Nothing yet. The sensor's `zone` (`Z1`…`Z4`) and `node` (`N1`…`N4`) match `factory.json`. |
 | `CONFIRMED` | `sim.start_fire(x, y)` with the origin clicked on the factory page; `sim.set_wind(kmh, deg)` from the slider |
 | `EN_ROUTE` | `sim.forecast(5)` once to show where the fire is heading. Start the background thread that calls `sim.step()` every 0.5 s, so the fire grows while the team drives. |
-| `DRONE_INSIDE` | `sim.launch_drone(entry)`. Each victim id returned by `sim.step()` or `sim.add_victim_here()` is newly found: queue `sim.guidance(id)["say"]` for `/api/voice/next`. On `/api/voice`, call `sim.set_victim_status(id, status)`. |
+| `DRONE_INSIDE` | `sim.launch_drone(entry)`. Each victim id returned by `sim.step()` or `sim.add_victim_here()` is newly found: queue `sim.guidance(id)["say"]` for `/api/voice/next`. When the commander sets a victim's state (`/api/victim/status`, or `/api/voice` from a voice script that listens), call `sim.set_victim_status(id, status)`. |
 | `PLANS_READY` | When `state()["drone"]["state"] == "OUT"`, which covers both the drone overheating and the building being fully explored |
 
 ### Drawing tips for the dashboard

@@ -1,0 +1,9 @@
+{
+  "conf_threshold": 0.5,
+  "true_positives": 2382,
+  "false_positives": 149,
+  "false_negatives": 490,
+  "precision": 0.9411,
+  "recall": 0.8294,
+  "note": "test set (1,317 images, 2,872 people); a detector has no true-negative count"
+}

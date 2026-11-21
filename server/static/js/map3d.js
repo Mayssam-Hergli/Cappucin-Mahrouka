@@ -1021,6 +1021,7 @@ const View3D = window.View3D = {
     this.active = on;
     host.hidden = !on;
     map2d.style.visibility = on ? "hidden" : "";
+    document.getElementById("mapWrap").classList.toggle("is3d", on);
     document.getElementById("tooltip").style.display = "none";
     document.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.view === "3d") === on)));
     if (on) { this.impl.needle = document.getElementById("m3Needle"); this.place(); this.impl.resize(); this.impl.start(); syncNav(); }

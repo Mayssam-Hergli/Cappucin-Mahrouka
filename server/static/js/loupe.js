@@ -92,6 +92,7 @@ const Loupe = {
       return `<li class="${t ? "tagged" : ""}">${tag}<span>${U.esc(stripEmoji(r))}</span></li>`;
     }).join("") || '<li class="none">Aucun risque identifié.</li>';
     if (risks.innerHTML !== html) risks.innerHTML = html;
+    if (typeof HazardSheet !== "undefined") HazardSheet.fill(document.getElementById("loupeSheet"), this.zone);   // fiche de danger (action.js)
   },
 
   _spark(cv, h, col) {

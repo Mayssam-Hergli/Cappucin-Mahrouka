@@ -71,12 +71,8 @@ const Countdown = (() => {
     return { sec: rem, text: "Limite de chaleur du drone (60 °C)", tag: rem < 30 ? "< 30 s" : "~" + Math.round(rem / 5) * 5 + " s", cls: rem < 30 ? "red" : "amber" };
   }
 
-  function render(s) {
-    const card = document.getElementById("cardCountdown");
-    if (!card) return;
-    const on = SHOW.includes(s.phase);
-    card.hidden = !on;
-    if (!on) return;
+  // cibles atteintes par le feu dans les 5 min, triées (la plus urgente d'abord)
+  function computeRows(s) {
     if (!targets) targets = buildTargets(Live.factory);
     const rows = [];
     for (const tg of targets) {
@@ -86,9 +82,19 @@ const Countdown = (() => {
     for (const v of s.victims || []) {
       if (!v.found) continue;
       const sec = etaOf([[v.x, v.y]], s);
-      if (sec <= HORIZON) rows.push({ sec, text: `Feu → victime ${v.id}`, tag: fmt(sec), cls: sev(sec), at: [v.x, v.y], zone: "", picto: null, victim: true });
+      if (sec <= HORIZON) rows.push({ sec, text: `Feu → victime ${v.id}`, tag: fmt(sec), cls: sev(sec), at: [v.x, v.y], zone: "", picto: null, victim: v.id });
     }
     rows.sort((a, b) => a.sec - b.sec);
+    return rows;
+  }
+
+  function render(s) {
+    const card = document.getElementById("cardCountdown");
+    if (!card) return;
+    const on = SHOW.includes(s.phase);
+    card.hidden = !on;
+    if (!on) return;
+    const rows = computeRows(s);
     const list = rows.slice(0, 5);
     const dr = droneRow(s);
     if (dr) list.unshift(dr);
@@ -116,7 +122,7 @@ const Countdown = (() => {
     });
   }
 
-  return { init() { Live.on(render); } };
+  return { init() { Live.on(render); }, rows: computeRows, fmt };
 })();
 
 (function waitLive() {

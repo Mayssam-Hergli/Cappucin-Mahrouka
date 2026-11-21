@@ -111,7 +111,13 @@ class Sim:
         return found
 
     def add_victim_here(self, conf):
-        """The webcam saw a person at the drone's position. Returns the victim id, or None."""
+        """The webcam saw a person at the drone's position.
+
+        Returns the id of a NEWLY found victim (an existing hidden one nearby, or a new
+        one created at the drone's position), so the server can queue the voice message.
+        Returns None if the drone is not inside, or if the person is a victim already
+        known: they were already spoken to, so no second message is queued.
+        """
         with self._lock:
             if self.drone is None or self.drone.state == OUT:
                 return None
@@ -122,7 +128,7 @@ class Sim:
                     v["found"] = True
                     return v["id"]
             if near:
-                return near[0]["id"]    # already known: do not create a duplicate
+                return None             # already known: no duplicate, no second voice message
             vid = f"V{len(self.victims) + 1}"
             self.victims.append({"id": vid, "x": dx, "y": dy, "found": True, "status": "unknown"})
             return vid

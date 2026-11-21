@@ -255,7 +255,7 @@ See [`sim/README.md`](sim/README.md#how-the-server-uses-it) for how each phase c
 | Victims | `state()["victims"]` lists every victim. Only those with `found: true` are known to the commander and drawn on the map. A victim's `status` is `unknown` until they answer the drone, then `walking`, `injured` or `no_answer`. |
 | Drone | `state()["drone"]` is `null` until `launch_drone()` is called. |
 | Fire origin | `start_fire(x, y)` returns the cell it actually used: a click on a wall moves to the nearest open cell. |
-| Victim from the webcam | `add_victim_here(conf)` returns the victim id it found or created (or `null` if the drone is not inside), so the server can queue the voice message. |
+| Victim from the webcam | `add_victim_here(conf)` returns the id of a **newly** found or created victim, so the server can queue the voice message. It returns `null` if the drone is not inside, or if that person is already known (no duplicate on the map, no second voice message). |
 | IDs | Zones `Z1…`, sensor nodes `N1…`, exit doors `E1…E3`, victims `V1…`. |
 | Attack side | `attack_from` is one of `N`, `S`, `E`, `W`. |
 | Actions first | `first` lists what to do before attacking (close a gas valve, cut the power). It can be empty. |

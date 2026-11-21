@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Hrika · Carte d'empathie</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  :root {
+    --ink: #1c1917; --muted: #57534e; --line: #e7e5e4; --paper: #ffffff; --soft: #fafaf9;
+    --fire: #c2410c; --fire-soft: #fff7ed;
+    --says: #1d4ed8; --thinks: #7c3aed; --does: #047857; --feels: #b45309;
+    --pain: #b91c1c; --pain-soft: #fef2f2; --gain: #15803d; --gain-soft: #f0fdf4;
+  }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  html, body { margin: 0; padding: 0; background: #e7e5e4; color: var(--ink);
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+  .page { width: 297mm; height: 210mm; margin: 0 auto; background: var(--paper);
+    padding: 10mm 13mm 9mm; display: grid; grid-template-rows: auto 1fr auto auto; gap: 4.5mm;
+    page-break-after: always; break-after: page; overflow: hidden; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  @media screen { .page { margin: 8mm auto; box-shadow: 0 2px 12px rgba(0,0,0,.15); } }
+
+  header { display: flex; justify-content: space-between; align-items: flex-end;
+    border-bottom: 2px solid var(--fire); padding-bottom: 3mm; }
+  .kicker { font-size: 8.5pt; letter-spacing: .12em; text-transform: uppercase; color: var(--fire); font-weight: 700; }
+  h1 { margin: 1mm 0 0; font-size: 21pt; line-height: 1.1; }
+  .brand { text-align: right; font-size: 8.5pt; color: var(--muted); line-height: 1.4; }
+  .brand b { color: var(--ink); font-size: 13pt; letter-spacing: .02em; }
+
+  .map { display: grid; grid-template-columns: 1fr 64mm 1fr; grid-template-rows: 1fr 1fr; gap: 3.5mm; min-height: 0; }
+  .q { border: 1px solid var(--line); border-radius: 3mm; padding: 3mm 4mm; background: var(--soft);
+    border-top: 1.3mm solid var(--c); min-height: 0; }
+  .q h2 { margin: 0 0 1.5mm; font-size: 10.5pt; color: var(--c); text-transform: uppercase; letter-spacing: .08em; }
+  .q h2 small { text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 400; font-size: 8.5pt; }
+  ul { margin: 0; padding-left: 4mm; }
+  li { font-size: 9.6pt; line-height: 1.32; margin: 0 0 1.1mm; }
+  .says  { --c: var(--says); }  .thinks { --c: var(--thinks); }
+  .does  { --c: var(--does); }  .feels  { --c: var(--feels); }
+  .quote li { font-style: italic; }
+
+  .persona { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: center;
+    text-align: center; padding: 2mm 1mm; gap: 2.5mm; }
+  .avatar { width: 30mm; height: 30mm; border-radius: 50%; background: var(--fire-soft);
+    border: 1.2mm solid var(--fire); display: grid; place-items: center; }
+  .avatar svg { width: 18mm; height: 18mm; }
+  .who { font-size: 12.5pt; font-weight: 700; line-height: 1.2; }
+  .role { font-size: 9pt; color: var(--muted); line-height: 1.35; }
+  .scene { margin-top: auto; background: var(--fire-soft); border: 1px solid #fed7aa; border-radius: 2.5mm;
+    padding: 2.5mm 3mm; font-size: 8.8pt; line-height: 1.38; text-align: left; }
+  .scene b { color: var(--fire); display: block; font-size: 8pt; letter-spacing: .1em; text-transform: uppercase; margin-bottom: .8mm; }
+
+  .pg { display: grid; grid-template-columns: 1fr 1fr; gap: 3.5mm; }
+  .pg .box { border-radius: 3mm; padding: 3mm 4mm; border: 1px solid; }
+  .pg h2 { margin: 0 0 1.5mm; font-size: 10.5pt; text-transform: uppercase; letter-spacing: .08em; }
+  .pain { background: var(--pain-soft); border-color: #fecaca; } .pain h2 { color: var(--pain); }
+  .gain { background: var(--gain-soft); border-color: #bbf7d0; } .gain h2 { color: var(--gain); }
+  .pg li { font-size: 9.4pt; margin-bottom: .8mm; }
+
+  footer { display: flex; justify-content: space-between; font-size: 8.3pt; color: var(--muted);
+    border-top: 1px solid var(--line); padding-top: 2mm; }
+  footer .rule { color: var(--fire); font-weight: 700; }
+
+  /* page 3 */
+  .p3 { display: grid; grid-template-columns: 1fr 1.25fr; gap: 6mm; min-height: 0; }
+  .p3 h2 { margin: 0 0 2.5mm; font-size: 11pt; text-transform: uppercase; letter-spacing: .08em; color: var(--fire); }
+  .tl { list-style: none; padding: 0; margin: 0; border-left: 2px solid #fed7aa; }
+  .tl li { position: relative; padding: 0 0 2.6mm 5mm; font-size: 9.5pt; line-height: 1.35; margin: 0; }
+  .tl li::before { content: ""; position: absolute; left: -1.6mm; top: 1.2mm; width: 3mm; height: 3mm;
+    border-radius: 50%; background: var(--fire); }
+  .tl b { display: block; font-size: 8.3pt; letter-spacing: .08em; text-transform: uppercase; color: var(--fire); }
+  table { width: 100%; border-collapse: collapse; font-size: 9.3pt; }
+  th { text-align: left; font-size: 8.3pt; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+    border-bottom: 2px solid var(--ink); padding: 1.6mm 2mm; }
+  td { border-bottom: 1px solid var(--line); padding: 1.9mm 2mm; vertical-align: top; line-height: 1.32; }
+  td:first-child { color: var(--pain); width: 34%; }
+  td .who-tag { display: inline-block; font-size: 7.3pt; font-weight: 700; color: #fff; border-radius: 1mm;
+    padding: .2mm 1.2mm; margin-left: 1mm; vertical-align: 1px; }
+  .t-o { background: var(--says); } .t-h { background: var(--does); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; }
+  .stat { border: 1px solid var(--line); border-radius: 2.5mm; padding: 2.5mm 3mm; background: var(--soft); }
+  .stat .n { font-size: 15pt; font-weight: 700; color: var(--fire); line-height: 1.1; }
+  .stat .l { font-size: 8.3pt; color: var(--muted); line-height: 1.3; margin-top: .8mm; }
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1&nbsp;: OFFICIER ============ -->
+<section class="page">
+  <header>
+    <div>
+      <div class="kicker">Carte d'empathie · Utilisateur 1 / 2</div>
+      <h1>L'officier de la Protection Civile</h1>
+    </div>
+    <div class="brand"><b>Hrika</b><br>Aeroday · défi Protection Civile</div>
+  </header>
+
+  <div class="map">
+    <div class="q says quote">
+      <h2>Dit <small>à voix haute</small></h2>
+      <ul>
+        <li>«&nbsp;Combien de personnes sont encore à l'intérieur&nbsp;?&nbsp;»</li>
+        <li>«&nbsp;Où est le plan de l'usine&nbsp;? Il date de quand&nbsp;?&nbsp;»</li>
+        <li>«&nbsp;Qu'est-ce qui est stocké en zone 4&nbsp;? Des solvants, du gaz&nbsp;?&nbsp;»</li>
+        <li>«&nbsp;Personne n'entre tant qu'on ne sait pas où est le feu.&nbsp;»</li>
+      </ul>
+    </div>
+
+    <div class="persona">
+      <div class="avatar" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 13a8 8 0 0 1 16 0"/><path d="M3 13h18"/><path d="M12 5v3"/><path d="M7 13v1a5 5 0 0 0 10 0v-1"/><path d="M9 21h6"/>
+        </svg>
+      </div>
+      <div class="who">Lieutenant Karim, 38 ans</div>
+      <div class="role">Chef d'intervention, Protection Civile.<br>15 ans de service, unité proche d'une zone industrielle.</div>
+      <div class="scene">
+        <b>Notre scénario</b>
+        22&nbsp;h&nbsp;40. Alarme du capteur <strong>N1</strong>, zone <strong>Z2</strong>&nbsp;: stockage papier et bois.
+        5 ouvriers de l'équipe de nuit sont dedans, dont un près des bouteilles de gaz. Vent de 15&nbsp;km/h vers l'est.
+      </div>
+    </div>
+
+    <div class="q thinks quote">
+      <h2>Pense <small>sans le dire</small></h2>
+      <ul>
+        <li>«&nbsp;Si j'envoie mes hommes à l'aveugle, je peux en perdre un.&nbsp;»</li>
+        <li>«&nbsp;Le papier brûle vite, et le vent pousse le feu vers la sortie Est.&nbsp;»</li>
+        <li>«&nbsp;Chaque minute passée à fouiller pièce par pièce, la fumée s'épaissit.&nbsp;»</li>
+        <li>«&nbsp;Et si c'était encore une fausse alarme&nbsp;?&nbsp;»</li>
+      </ul>
+    </div>
+
+    <div class="q does">
+      <h2>Fait <small>aujourd'hui</small></h2>
+      <ul>
+        <li>Part vers le site avec presque aucune information.</li>
+        <li>Demande aux ouvriers sortis qui manque à l'appel.</li>
+        <li>Cherche un plan papier de l'usine, s'il existe.</li>
+        <li>Envoie des binômes sous appareil respiratoire fouiller pièce par pièce.</li>
+        <li>Choisit la porte d'entrée et l'agent extincteur à l'expérience.</li>
+      </ul>
+    </div>
+
+    <div class="q feels">
+      <h2>Ressent</h2>
+      <ul>
+        <li>La pression&nbsp;: ses premières décisions sauvent ou coûtent des vies.</li>
+        <li>La responsabilité des victimes <em>et</em> de sa propre équipe.</li>
+        <li>De la frustration face à une information absente ou fausse.</li>
+        <li>La peur d'une explosion&nbsp;: bouteilles de gaz, fûts de solvants.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pg">
+    <div class="box pain">
+      <h2>Douleurs</h2>
+      <ul>
+        <li>Pas de plan à jour de l'usine.</li>
+        <li>Fumée épaisse&nbsp;: visibilité nulle à l'intérieur.</li>
+        <li>Ne sait ni combien de victimes il y a, ni où elles sont.</li>
+        <li>Matières dangereuses inconnues&nbsp;: gaz, solvants, armoires électriques.</li>
+        <li>Les fausses alarmes mobilisent des équipes pour rien.</li>
+        <li>Ses hommes prennent le plus grand risque pour trouver les victimes.</li>
+      </ul>
+    </div>
+    <div class="box gain">
+      <h2>Gains attendus</h2>
+      <ul>
+        <li>Savoir <strong>avant d'arriver</strong> où est le feu et où il va.</li>
+        <li>Voir les personnes à travers la fumée, et où elles sont sur le plan.</li>
+        <li>La porte la plus sûre pour entrer, la sortie la plus sûre pour chaque victime.</li>
+        <li>Le bon agent&nbsp;: l'eau sur le papier, couper le gaz avant d'approcher la zone 4.</li>
+        <li>Une alarme confirmée par l'usine avant de mobiliser l'équipe.</li>
+        <li>Moins de risques pour son équipe, et la décision reste la sienne.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <span>Persona fictif, construit à partir du défi et des pratiques actuelles d'intervention.</span>
+    <span class="rule">L'IA recommande, le commandant décide.</span>
+  </footer>
+</section>
+
+<!-- ============ PAGE 2&nbsp;: RESPONSABLE HSE ============ -->
+<section class="page">
+  <header>
+    <div>
+      <div class="kicker">Carte d'empathie · Utilisateur 2 / 2</div>
+      <h1>La responsable HSE de l'usine</h1>
+    </div>
+    <div class="brand"><b>Hrika</b><br>Aeroday · défi Protection Civile</div>
+  </header>
+
+  <div class="map">
+    <div class="q says quote">
+      <h2>Dit <small>à voix haute</small></h2>
+      <ul>
+        <li>«&nbsp;On a passé l'inspection l'année dernière.&nbsp;»</li>
+        <li>«&nbsp;Le plan d'évacuation est affiché à chaque porte.&nbsp;»</li>
+        <li>«&nbsp;Je ne peux pas arrêter la production.&nbsp;»</li>
+        <li>«&nbsp;Combien ça coûte, et qu'est-ce qu'on y gagne&nbsp;?&nbsp;»</li>
+      </ul>
+    </div>
+
+    <div class="persona">
+      <div class="avatar" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 21V10l5 3V10l5 3V7l8 4v10z"/><path d="M3 21h18"/><path d="M8 17h1M13 17h1M17 17h1"/>
+        </svg>
+      </div>
+      <div class="who">Amira, 34 ans</div>
+      <div class="role">Responsable Hygiène, Sécurité, Environnement.<br>Usine de 250 ouvriers, équipes de jour et de nuit.</div>
+      <div class="scene">
+        <b>Son usine</b>
+        4 zones&nbsp;: bureaux, stockage papier et bois, atelier de production, stockage solvants et gaz.
+        3 sorties, 1 vanne de gaz, 1 coupure électrique. La nuit, seulement 5 ouvriers sur place.
+      </div>
+    </div>
+
+    <div class="q thinks quote">
+      <h2>Pense <small>sans le dire</small></h2>
+      <ul>
+        <li>«&nbsp;Et si le feu prend la nuit, quand il n'y a presque personne&nbsp;?&nbsp;»</li>
+        <li>«&nbsp;Notre alarme sonne dans l'usine, mais qui l'entend dehors&nbsp;?&nbsp;»</li>
+        <li>«&nbsp;On a déplacé la ligne de production&nbsp;: le plan n'a jamais été mis à jour.&nbsp;»</li>
+        <li>«&nbsp;S'il arrive quelque chose à un ouvrier, c'est sur moi.&nbsp;»</li>
+      </ul>
+    </div>
+
+    <div class="q does">
+      <h2>Fait <small>aujourd'hui</small></h2>
+      <ul>
+        <li>Organise deux exercices d'évacuation par an.</li>
+        <li>Vérifie les extincteurs, les alarmes et la vanne de gaz.</li>
+        <li>Met à jour les plans papier quand elle a le temps, c'est-à-dire rarement.</li>
+        <li>Prépare les inspections de la Protection Civile.</li>
+        <li>Appelle la Protection Civile quand l'alarme se déclenche.</li>
+      </ul>
+    </div>
+
+    <div class="q feels">
+      <h2>Ressent</h2>
+      <ul>
+        <li>Responsable de chaque ouvrier.</li>
+        <li>Inquiète pour l'équipe de nuit et le stock de gaz.</li>
+        <li>Sous la pression budgétaire de la direction.</li>
+        <li>Stressée avant chaque inspection.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pg">
+    <div class="box pain">
+      <h2>Douleurs</h2>
+      <ul>
+        <li>Les plans sont périmés à chaque changement d'aménagement.</li>
+        <li>Les alarmes locales ne sont pas reliées aux secours.</li>
+        <li>Pendant une évacuation, elle ne sait pas qui est encore dedans.</li>
+        <li>Un incendie, c'est des pertes, un arrêt de production, une assurance plus chère.</li>
+        <li>Les inspections sont lourdes et pleines de papier.</li>
+      </ul>
+    </div>
+    <div class="box gain">
+      <h2>Gains attendus</h2>
+      <ul>
+        <li>L'alarme part <strong>directement</strong> à la Protection Civile, avec la zone.</li>
+        <li>Un plan d'intervention <strong>toujours à jour</strong>.</li>
+        <li>Ses ouvriers retrouvés et guidés vers la sortie la plus sûre.</li>
+        <li>Moins de pertes et d'arrêt, une prime d'assurance plus basse.</li>
+        <li>Une preuve de conformité pour les inspections.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <span>Persona fictif. C'est elle qui paie&nbsp;: installation et abonnement annuel. La Protection Civile l'utilise gratuitement.</span>
+    <span class="rule">L'IA recommande, le commandant décide.</span>
+  </footer>
+</section>
+
+<!-- ============ PAGE 3&nbsp;: DES DOULEURS AUX FONCTIONNALITES ============ -->
+<section class="page">
+  <header>
+    <div>
+      <div class="kicker">Carte d'empathie · Synthèse</div>
+      <h1>Des douleurs aux fonctionnalités</h1>
+    </div>
+    <div class="brand"><b>Hrika</b><br>Aeroday · défi Protection Civile</div>
+  </header>
+
+  <div class="p3">
+    <div>
+      <h2>Le scénario de notre démo</h2>
+      <ul class="tl">
+        <li><b>Alerte</b>Le capteur N1 détecte la chaleur et le gaz en zone Z2, stockage papier et bois. L'alarme arrive sur le tableau de bord de la Protection Civile.</li>
+        <li><b>Vérification</b>L'officier appelle l'usine. L'usine confirme le feu et indique son point de départ.</li>
+        <li><b>En route</b>Le plan de l'usine se charge. La prévision montre le feu passer de <strong>34 à 56&nbsp;m²</strong> en 5 minutes.</li>
+        <li><b>Drone à l'intérieur</b>Le drone entre par la sortie Ouest (E1). Sa caméra thermique trouve les <strong>5 ouvriers sur 5</strong> et indique à chacun la sortie la plus sûre.</li>
+        <li><b>Sécurité du drone</b>Près du feu, il atteint <strong>60&nbsp;°C</strong> et ressort tout seul.</li>
+        <li><b>Trois plans</b>Entrer par la sortie Sud (E2). Évacuer chaque ouvrier par sa sortie la plus sûre. Attaquer à l'eau par l'ouest&nbsp;: le feu passe de <strong>56 à 11&nbsp;m²</strong> au lieu de grandir.</li>
+      </ul>
+    </div>
+
+    <div>
+      <h2>Chaque douleur a sa réponse</h2>
+      <table>
+        <thead><tr><th>Douleur</th><th>Ce que fait Hrika</th></tr></thead>
+        <tbody>
+          <tr><td>Personne dehors ne sait qu'il y a un feu <span class="who-tag t-h">HSE</span></td><td>Capteurs fixes dans chaque zone&nbsp;: alerte immédiate sur le tableau de bord, avec la zone.</td></tr>
+          <tr><td>Fausses alarmes <span class="who-tag t-o">Officier</span></td><td>Appel de confirmation à l'usine. Le capteur regarde la vitesse de montée, pas une seule valeur&nbsp;: une main chaude ne déclenche rien.</td></tr>
+          <tr><td>Pas de plan à jour <span class="who-tag t-o">Officier</span> <span class="who-tag t-h">HSE</span></td><td>Plan vivant de l'usine, chargé pendant le trajet, avec la prévision du feu.</td></tr>
+          <tr><td>La fumée cache les victimes <span class="who-tag t-o">Officier</span></td><td>Drone éclaireur et IA thermique&nbsp;: 94&nbsp;% de précision, testée sur 1&nbsp;317 images thermiques réelles.</td></tr>
+          <tr><td>On ne sait pas qui est encore dedans <span class="who-tag t-h">HSE</span></td><td>Chaque personne trouvée apparaît sur le plan. Le drone lui indique la sortie la plus sûre et que les secours arrivent.</td></tr>
+          <tr><td>Gaz, solvants, armoires électriques <span class="who-tag t-o">Officier</span></td><td>Plan d'extinction&nbsp;: par où commencer, de quel côté, avec quel agent, et quand couper le gaz ou le courant.</td></tr>
+          <tr><td>Les pompiers risquent leur vie à chercher <span class="who-tag t-o">Officier</span></td><td>Plan d'entrée&nbsp;: la porte la plus sûre pour atteindre les victimes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">5&nbsp;/&nbsp;5</div><div class="l">ouvriers trouvés par le drone dans le scénario</div></div>
+    <div class="stat"><div class="n">56 → 11&nbsp;m²</div><div class="l">de feu avec l'attaque recommandée, testée 3 min à l'avance</div></div>
+    <div class="stat"><div class="n">94&nbsp;%</div><div class="l">de précision de l'IA thermique au seuil du drone</div></div>
+    <div class="stat"><div class="n">60&nbsp;°C</div><div class="l">le drone ressort seul avant de brûler</div></div>
+  </div>
+
+  <footer>
+    <span>Chiffres issus de notre simulation et de l'évaluation de notre modèle IA.</span>
+    <span class="rule">L'IA recommande, le commandant décide.</span>
+  </footer>
+</section>
+
+</body>
+</html>

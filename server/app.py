@@ -14,6 +14,8 @@ import threading
 import time
 import traceback
 
+from urllib.parse import urlparse
+
 from flask import Flask, jsonify, render_template, request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +25,8 @@ sys.path.insert(0, HERE)
 from fake_sim import FakeSim  # noqa: E402
 from geo import Grid, compass_fr  # noqa: E402
 from zones import Analyzer  # noqa: E402
+import security  # noqa: E402
+from security import SensorAuth, clean_jpg, clean_sensor, num  # noqa: E402
 
 PHASES = ["NORMAL", "ALERT", "CHECKING", "CONFIRMED", "EN_ROUTE", "DRONE_INSIDE", "PLANS_READY"]
 RUNNING = {"CONFIRMED", "EN_ROUTE", "DRONE_INSIDE", "PLANS_READY"}
@@ -84,8 +88,17 @@ class Hub:
             self.ignore_alarm_until = 0
             self.known_found = set()
             self.drone_state = None
+            self.sec_logged = {}
             self.last = self.sim.state() if self.sim_kind == "fake" else None
             self.log("Système prêt. Surveillance des capteurs de l'usine.")
+
+    def security_log(self, text):
+        """Refus de sécurité dans le journal, au plus une fois toutes les 10 s par message."""
+        now = time.time()
+        if now - self.sec_logged.get(text, 0) >= 10:
+            self.sec_logged[text] = now
+            self.log(text, "warn")
+        print("[sécurité]", text)
 
     def log(self, text, kind="info"):
         self.events.append({"t": time.strftime("%H:%M:%S"), "at": time.time(),
@@ -311,10 +324,31 @@ class Hub:
 hub = Hub()
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.json.ensure_ascii = False
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024      # une image caméra fait ~40 Ko
+auth = SensorAuth()
+
+
+@app.before_request
+def post_guard():
+    """Contre les requêtes envoyées par une autre page web (CSRF) : POST en JSON seulement,
+    et si le navigateur indique son origine, ce doit être ce serveur."""
+    if request.method != "POST":
+        return None
+    if request.mimetype != "application/json":
+        return jsonify(ok=False, error="Content-Type: application/json attendu"), 415
+    origin = request.headers.get("Origin")
+    if origin and urlparse(origin).netloc != request.host:
+        return jsonify(ok=False, error="origine refusée"), 403
+    return None
 
 
 def body():
-    return request.get_json(force=True, silent=True) or {}
+    d = request.get_json(silent=True)
+    return d if isinstance(d, dict) else {}
+
+
+def bad(msg):
+    return jsonify(ok=False, error=msg), 400
 
 
 # ---------------------------------------------------------------- pages
@@ -345,8 +379,23 @@ def api_factory():
 
 @app.post("/api/sensor")
 def api_sensor():
-    hub.sensor(body())
-    return jsonify(ok=True, phase=hub.phase)
+    raw, d = request.get_data(), body()
+    now = time.time()
+    try:
+        clean = clean_sensor(d, hub.factory)
+    except (ValueError, TypeError) as e:
+        hub.security_log(f"Message capteur refusé : {e}")
+        return jsonify(ok=False, error=str(e), t=now), 400
+    why = auth.check(clean["node"], request.headers, raw)
+    if why:
+        ts = request.headers.get("X-Hrika-Time", "0")
+        if why == "message périmé" and ts.isdigit() and int(ts) < 1_000_000_000:
+            print(f"[sécurité] {clean['node']} : horloge pas encore réglée, il se cale sur t")
+        else:
+            hub.security_log(f"Message capteur {clean['node']} rejeté : {why}")
+        return jsonify(ok=False, error=why, t=now), 401
+    hub.sensor(clean)
+    return jsonify(ok=True, phase=hub.phase, t=now)
 
 
 @app.post("/api/call_factory")
@@ -358,13 +407,22 @@ def api_call_factory():
 @app.post("/api/factory/confirm")
 def api_factory_confirm():
     d = body()
-    ok = hub.confirm(bool(d.get("real")), d.get("origin"))
+    origin = d.get("origin")
+    try:
+        if origin is not None:
+            origin = [int(num(origin[0], 0, hub.grid.W - 1)), int(num(origin[1], 0, hub.grid.H - 1))]
+    except (ValueError, TypeError, IndexError, KeyError):
+        return bad("origine hors du plan")
+    ok = hub.confirm(d.get("real") is True, origin)
     return jsonify(ok=ok, phase=hub.phase), (200 if ok else 409)
 
 
 @app.post("/api/drone/launch")
 def api_drone_launch():
-    ok = hub.launch(body().get("entry", "E1"))
+    entry = body().get("entry", "E1")
+    if entry not in {e["id"] for e in hub.grid.exits}:
+        return bad("sortie inconnue")
+    ok = hub.launch(entry)
     return jsonify(ok=ok, phase=hub.phase), (200 if ok else 409)
 
 
@@ -372,16 +430,19 @@ def api_drone_launch():
 def api_vision():
     d = body()
     now = time.time()
+    try:
+        conf, jpg, person = num(d.get("conf", 0), 0, 1), clean_jpg(d.get("jpg")), d.get("person") is True
+    except (ValueError, TypeError) as e:
+        return bad(str(e) or "conf entre 0 et 1 attendue")
     with hub.lock:
         hub.health["vision"] = now
-        if d.get("jpg"):
-            hub.camera = {"jpg": d["jpg"], "at": now, "person": bool(d.get("person")),
-                          "conf": d.get("conf")}
-        if (hub.phase == "DRONE_INSIDE" and d.get("person") and float(d.get("conf", 0)) >= 0.5
+        if jpg:
+            hub.camera = {"jpg": jpg, "at": now, "person": person, "conf": conf}
+        if (hub.phase == "DRONE_INSIDE" and person and conf >= 0.5
                 and now - hub.last_vision_add >= 10):
             hub.last_vision_add = now
-            vid = hub.sim.add_victim_here(float(d.get("conf", 0)))
-            hub.log(f"IA thermique : personne détectée (confiance {float(d.get('conf', 0)):.0%})"
+            vid = hub.sim.add_victim_here(conf)
+            hub.log(f"IA thermique : personne détectée (confiance {conf:.0%})"
                     + (f" → {vid}" if vid else ""), "victim")
     return jsonify(ok=True)
 
@@ -397,14 +458,21 @@ def api_voice_next():
 def api_voice():
     d = body()
     vid, status = d.get("victim"), d.get("status", "no_answer")
+    heard = d.get("heard") if isinstance(d.get("heard"), str) else ""
+    heard = heard[:300]
+    if vid is not None and status not in security.VICTIM_STATUSES:
+        return bad("statut inconnu")
     with hub.lock:
         hub.health["voix"] = time.time()
         if vid:
-            hub.sim.set_victim_status(vid, status)
-            hub.dialogs.setdefault(vid, []).append({"who": "victime", "text": d.get("heard") or "(pas de réponse)",
+            try:
+                hub.sim.set_victim_status(vid, status)
+            except (KeyError, ValueError, TypeError):
+                return bad("victime inconnue")
+            hub.dialogs.setdefault(vid, []).append({"who": "victime", "text": heard or "(pas de réponse)",
                                                     "status": status, "t": time.strftime("%H:%M:%S")})
             fr = {"walking": "peut marcher", "injured": "BLESSÉ(E)", "no_answer": "NE RÉPOND PAS"}.get(status, status)
-            hub.log(f"{vid} {fr} — « {d.get('heard') or '…'} »", "victim")
+            hub.log(f"{vid} {fr} — « {heard or '…'} »", "victim")
     return jsonify(ok=True)
 
 
@@ -412,10 +480,14 @@ def api_voice():
 @app.post("/api/wind")
 def api_wind():
     d = body()
+    try:
+        kmh, deg = num(d.get("kmh", 10), 0, 150), num(d.get("deg", 0), -360, 720) % 360
+    except (ValueError, TypeError):
+        return bad("vent invalide")
     with hub.lock:
-        hub.sim.set_wind(float(d.get("kmh", 10)), float(d.get("deg", 0)))
+        hub.sim.set_wind(kmh, deg)
         if hub.last:
-            hub.last["wind"] = {"kmh": float(d.get("kmh", 10)), "deg": float(d.get("deg", 0))}
+            hub.last["wind"] = {"kmh": kmh, "deg": deg}
     return jsonify(ok=True)
 
 
@@ -423,8 +495,13 @@ def api_wind():
 def api_victim_status():
     """Le commandant corrige à la main l'état d'une victime."""
     d = body()
+    if d.get("status") not in security.VICTIM_STATUSES:
+        return bad("statut inconnu")
     with hub.lock:
-        hub.sim.set_victim_status(d.get("victim"), d.get("status"))
+        try:
+            hub.sim.set_victim_status(d.get("victim"), d.get("status"))
+        except (KeyError, ValueError, TypeError):
+            return bad("victime inconnue")
         hub.log(f"Commandant : {d.get('victim')} marqué(e) « {d.get('status')} »", "decision")
     return jsonify(ok=True)
 
@@ -433,8 +510,10 @@ def api_victim_status():
 def api_plan_decide():
     d = body()
     names = {"evacuation": "d'évacuation", "entry": "d'entrée", "extinguish": "d'extinction"}
+    plan, dec = d.get("plan"), d.get("decision")
+    if plan not in names or dec not in ("accepted", "rejected"):
+        return bad("plan ou décision inconnus")
     with hub.lock:
-        plan, dec = d.get("plan"), d.get("decision")
         hub.decisions[plan] = {"decision": dec, "t": time.strftime("%H:%M:%S")}
         hub.log(f"Commandant : plan {names.get(plan, plan)} {'VALIDÉ' if dec == 'accepted' else 'REJETÉ'}",
                 "decision")
@@ -453,7 +532,10 @@ def api_demo(action):
     d = body()
     with hub.lock:
         if action == "speed":
-            hub.speed = max(0.5, min(8.0, float(d.get("value", 1))))
+            try:
+                hub.speed = max(0.5, min(8.0, num(d.get("value", 1), 0, 100)))
+            except (ValueError, TypeError):
+                return bad("vitesse invalide")
             hub.log(f"Vitesse de simulation ×{hub.speed:g}", "info")
         elif action == "alarm":
             hub.fake_alarm()

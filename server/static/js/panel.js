@@ -114,7 +114,8 @@ const Panel = {
     const lag = (performance.now() - Live.at) / 1000;
     const stale = !Live.ok || lag > 2;
     put("stale", stale, v => el.live.classList.toggle("stale", v));
-    put("live", stale ? "Liaison interrompue" : `Liaison ${lag.toFixed(1).replace(".", ",")} s`, v => { el.live.querySelector(".txt").textContent = v; });
+    put("live", stale ? "Liaison coupée" : "", v => { el.live.querySelector(".txt").textContent = v; });
+    put("liveTitle", stale ? "Liaison avec le serveur coupée" : "Liaison avec le serveur OK", v => { el.live.title = v; });
     const a = s.marks && s.marks.ALERT;
     let chrono = "--:--";
     if (a && s.phase !== "NORMAL" && s.phase !== "FALSE_ALARM") {
@@ -263,6 +264,8 @@ const Panel = {
       : `<li class="empty">${s.phase === "FALSE_ALARM" ? "Fausse alarme confirmée" : "Aucune alarme. Les capteurs surveillent l'usine."}</li>`;
     const ol = document.getElementById("decisions");
     if (ol.innerHTML !== html) ol.innerHTML = html;
+    const n = document.getElementById("decCount");
+    if (n) n.textContent = lines.length ? String(lines.length) : "";
   },
 
   _plansSummary(s) {
@@ -328,27 +331,27 @@ const Panel = {
     const anyFound = (s.victims || []).some(v => v.found);
     const evSorted = [...ev].sort((a, b) => (b.rescue_first ? 1 : 0) - (a.rescue_first ? 1 : 0));
     let h = "";
-    h += `<div class="plan"><div class="plan-h"><i class="key evac"></i>Évacuation</div><ul>${evSorted.map(e =>
+    h += `<div class="plan p-evac"><div class="plan-h"><i class="key evac"></i>Évacuation</div><ul>${evSorted.map(e =>
       `<li>${statusShape(statusOf[e.victim])}<b>${e.victim}</b><span>${e.exit ? `sortie ${e.exit}` : "aucun chemin sûr"}</span>
         ${e.rescue_first ? '<span class="prio">en premier</span>' : ""}<span class="r">${e.path && e.path.length ? `${e.path.length - 1} m` : ""}</span></li>`).join("")
       || '<li class="empty">Aucune victime trouvée</li>'}</ul></div>`;
     if (ms) {
       // même numérotation que sur la carte
-      h = `<div class="plan mission"><div class="plan-h"><i class="key entry"></i>Ordre d'intervention</div><ol>${ms.steps.map(st =>
+      h = `<div class="plan mission p-entry"><div class="plan-h"><i class="key entry"></i>Ordre d'intervention</div><ol>${ms.steps.map(st =>
         `<li class="ms k-${st.kind}${st.urgent ? " urgent" : ""}"><span class="ord">${st.n}</span>
           <b>${U.esc(st.title)}</b><span class="sub">${U.esc(st.sub)}</span>
           ${st.warn ? `<span class="warn">${U.esc(st.warn)}</span>` : ""}</li>`).join("")}</ol></div>` + h;
     } else {
-      h += `<div class="plan"><div class="plan-h"><i class="key entry"></i>Entrée des pompiers</div><ul>${en
+      h += `<div class="plan p-entry"><div class="plan-h"><i class="key entry"></i>Entrée des pompiers</div><ul>${en
         ? `<li><span>Par <b>${en.door}</b>, ${anyFound ? "vers les victimes" : "jusqu'au feu"}</span>
            <span class="r">${en.path && en.path.length ? `${en.path.length - 1} m` : ""}</span></li>`
         : '<li class="empty">Aucune porte conseillée</li>'}</ul></div>`;
     }
-    h += `<div class="plan"><div class="plan-h"><i class="key attack"></i>Extinction</div><ul>${ex.map(e => {
+    h += `<div class="plan p-attack"><div class="plan-h"><i class="key attack"></i>Extinction</div><ul>${ex.map(e => {
       const l = e.lookahead, open = this.lookOpen.has(e.zone);
       const n = ms ? Mission.stepOfZone(ms, e.zone) : e.order;
       return `<li class="ext"><span class="ord"${ms ? ' title="Numéro de l’étape sur la carte"' : ""}>${n != null ? n : e.order}</span>
-        <span><b>${e.zone} ${U.esc(this.zoneName[e.zone] || "")}</b>, ${U.esc(AGENT_FR[e.agent] || e.agent)} ${U.esc(SIDE_FR[e.attack_from] || e.attack_from)}</span>
+        <span><b>${e.zone} ${U.esc(this.zoneName[e.zone] || "")}</b> <span class="agent">${U.esc(AGENT_FR[e.agent] || e.agent)}</span> ${U.esc(SIDE_FR[e.attack_from] || e.attack_from)}</span>
         ${(e.first || []).length ? `<span class="first">D'abord : ${U.esc(e.first.map(firstFr).join(", "))}</span>` : ""}
         ${l ? `<button class="more" data-z="${e.zone}" aria-expanded="${open}">${open ? "Masquer le test" : "Voir le test à 3 min"}</button>
         <span class="look" ${open ? "" : "hidden"}>${U.esc(FIRE_CLASS_FR[e.fire_class] || e.fire_class)}. Simulé ${l.minutes} min à l'avance : feu près des victimes ${l.fire_near_victims.no_action} puis ${l.fire_near_victims.with_attack} m², feu total ${l.fire_m2.no_action} puis ${l.fire_m2.with_attack} m² (sans action, puis avec cette attaque).</span>` : ""}</li>`;

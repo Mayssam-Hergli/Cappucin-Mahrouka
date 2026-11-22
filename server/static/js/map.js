@@ -103,8 +103,8 @@ class MapView {
   }
   _view() {
     const c = this.cam;
-    // marges autour du bâtiment (en mètres) : à droite la rose des vents, en bas l'échelle
-    const [pl, pr, pt, pb] = this.detail ? [0, 0, 0, 0] : [0.8, 3.6, 0.8, 1.4];
+    // marges autour du bâtiment (en mètres) : en bas l'échelle (plus de rose des vents)
+    const [pl, pr, pt, pb] = this.detail ? [0, 0, 0, 0] : [0.8, 0.8, 0.8, 1.4];
     const s = Math.min(this.cssW / (c.w + pl + pr), this.cssH / (c.h + pt + pb));
     const ox = (this.cssW - (c.w + pl + pr) * s) / 2 + pl * s - c.x * s;
     const oy = (this.cssH - (c.h + pt + pb) * s) / 2 + pt * s - c.y * s;
@@ -479,7 +479,8 @@ class MapView {
     }
 
     this._drawZoneAlerts(ctx, s, now, v);
-    this._drawTrail(ctx, s, v);                       // sous les plans, les victimes et les étiquettes
+    // trace du vol : seulement pendant la reconnaissance ; ensuite elle encombre les plans
+    if (s.phase === "DRONE_INSIDE") this._drawTrail(ctx, s, v);
     this._mission = null;
     if (this.layers.paths) this._drawPlans(ctx, s, v);
     this._drawSensors(ctx, s, v);
@@ -737,32 +738,27 @@ class MapView {
   _drawMissionLabels(ctx, v) {
     const m = this._mission; if (!m || !this.layers.paths) return;
     const T = this.T, placed = [];
-    if (!this.detail) {           // la rose des vents et son texte restent lisibles
-      const { cx, cy, R } = this._roseAt(v);
-      placed.push({ x: cx - R - 40, y: cy - R - 18, w: 2 * R + 80, h: 2 * R + 56 });
-    }
     const hit = (r) => placed.some(p => r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y);
     const fit = (r) => r.x >= 2 && r.y >= 2 && r.x + r.w <= this.cssW - 2 && r.y + r.h <= this.cssH - 2;
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.textBaseline = "middle";
-    // dangers sur les itinéraires : petites étiquettes ambre
+    // dangers sur les itinéraires : une simple pastille « ! » (rouge = feu imminent, ambre = fumée/gaz) ;
+    // le texte est dans la carte « Ordre d'intervention », pas sur le plan
     for (const r of m.routes) for (const h of r.hazards) {
       const [px, py] = this.toScreen(h.at[0] + .5, h.at[1] + .5);
-      ctx.font = `700 11px ${FONT_COND}`;
-      const w = ctx.measureText(h.text).width + 10, hh = 16;
-      const cand = [[px + 8, py - hh - 4], [px - w - 8, py - hh - 4], [px + 8, py + 4], [px - w - 8, py + 4]]
-        .map(([x, y]) => ({ x, y, w, h: hh }));
-      const box = cand.find(b => fit(b) && !hit(b)) || cand[0];
-      placed.push(box);
-      ctx.strokeStyle = withAlpha(T["map-ink"], .7); ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(box.x + (box.x > px ? 0 : box.w), box.y + hh / 2); ctx.stroke();
-      ctx.fillStyle = T["chip-warn-bg"]; ctx.fillRect(box.x, box.y, w, hh);
-      ctx.fillStyle = T["chip-warn-tx"]; ctx.textAlign = "left"; ctx.fillText(h.text, box.x + 5, box.y + hh / 2 + 1);
+      const hot = h.kind === "threat", R = 7;
+      ctx.fillStyle = hot ? T["alarm-fill"] : T["chip-warn-bg"];
+      ctx.strokeStyle = T["map-halo"]; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px, py, R, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = hot ? T["on-accent"] : T["chip-warn-tx"];
+      ctx.font = `800 10px ${FONT_COND}`; ctx.textAlign = "center";
+      ctx.fillText("!", px, py + 1);
+      placed.push({ x: px - R, y: py - R, w: 2 * R, h: 2 * R });
     }
     // étapes : pastille numérotée + consigne
     const fills = { rescue: T["entry"], safety: T["amber"], attack: T["alarm-fill"] };
-    const showSub = v.s >= 14;
+    const showSub = false;   // le détail de chaque étape est dans la carte « Ordre d'intervention »
     for (const st of m.steps) {
       // la pastille se pose au-dessus de la victime ou de l'équipement, sur la position de lance sinon
       const lift = st.kind === "attack" && !st.noPos ? 0 : 1.15;
@@ -831,11 +827,6 @@ class MapView {
     const mark = (p, filled, text) => {
       ctx.lineWidth = 2 / v.s; ctx.strokeStyle = ink; ctx.fillStyle = filled ? ink : T["map-halo"];
       ctx.beginPath(); ctx.arc(p[0], p[1], .32, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.save(); ctx.scale(1 / v.s, 1 / v.s);
-      ctx.font = `600 11px ${FONT_COND}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-      ctx.lineWidth = 3; ctx.strokeStyle = T["map-halo"]; ctx.strokeText(text, p[0] * v.s, (p[1] - .45) * v.s);
-      ctx.fillStyle = ink; ctx.fillText(text, p[0] * v.s, (p[1] - .45) * v.s);
-      ctx.restore();
     };
     const first = pts[0], fe = this.nearestExit(first[0] - .5, first[1] - .5);
     mark(first, false, fe ? `Entrée ${fe.id}` : "Entrée");
@@ -1060,7 +1051,8 @@ class MapView {
     ctx.font = `600 12px ${FONT_COND}`; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
     ctx.fillText("5 m", x0 + L + 6, y0 + 2);
 
-    // rose des vents : nord en haut, flèche = direction VERS laquelle souffle le vent
+    // rose des vents retirée : le vent se règle et se lit dans la barre sous la carte
+    if (!this.showRose) { ctx.restore(); return; }
     const { cx, cy, R } = this._roseAt(v);
     ctx.fillStyle = withAlpha(T["map-bg"], .85); ctx.strokeStyle = T["map-ink-2"]; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill(); ctx.stroke();

@@ -7,7 +7,6 @@
 // matériaux et équipements qu'elle contient ; elle s'affiche dans la loupe.
 "use strict";
 
-const ACT_SIDE = { N: "Nord", S: "Sud", E: "Est", W: "Ouest" };
 
 function zoneAtCell(f, x, y) {
   return (f.zones || []).find(z => x >= z.rect[0] && x <= z.rect[2] && y >= z.rect[1] && y <= z.rect[3]) || null;
@@ -18,108 +17,61 @@ const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
 const Action = {
   last: "",
 
-  // phrase + niveau (red / amber / neutral / green)
+  // un ordre court (ce qu'il faut faire maintenant) + une seule urgence au plus.
+  // Le reste (victimes, zones, capteurs) est déjà dans la colonne de droite.
   compose(s) {
-    const f = Live.factory, parts = [];
-    let level = "neutral", tag = "SURVEILLANCE";
-    const victims = (s.victims || []).filter(v => v.found);
+    let level = "neutral", text = "";
     const urgent = (typeof Countdown !== "undefined" && ["EN_ROUTE", "DRONE_INSIDE", "PLANS_READY"].includes(s.phase))
       ? Countdown.rows(s).find(r => r.sec > 0) : null;
     const urgentTxt = (r) => {
-      const t = r.tag.replace("< 1 min", "moins d'1 min");
       const z = r.zone ? ` ${r.zone}` : "";
-      if (r.victim) return `feu sur ${r.victim} dans ${t}`;
+      if (r.victim) return `Feu sur ${r.victim}`;
       const k = r.tg && r.tg.kind;
-      if (k === "gas" || k === "valve") return `risque d'explosion${z} dans ${t}`;
-      if (k === "solvent") return `feu aux solvants${z} dans ${t}`;
-      if (k === "electric") return `feu sur l'armoire électrique${z} dans ${t}`;
-      if (k === "exit") return `${r.tg.label} menacée dans ${t}`;
-      return `${r.text.toLowerCase()} dans ${t}`;
+      if (k === "gas" || k === "valve") return `Explosion${z}`;
+      if (k === "solvent") return `Solvants${z}`;
+      if (k === "electric") return `Armoire électrique${z}`;
+      if (k === "exit") return `${r.tg.label} menacée`;
+      return r.text;
     };
-    const victimTxt = () => {
-      if (!victims.length) return null;
-      const zones = [...new Set(victims.map(v => (zoneAtCell(f, v.x, v.y) || {}).id).filter(Boolean))];
-      const inj = victims.filter(v => v.status === "injured").length;
-      const mute = victims.filter(v => v.status === "no_answer").length;
-      let t = `${plural(victims.length, "victime", "victimes")} ${zones.length === 1 ? "en " + zones[0] : "(" + zones.join(", ") + ")"}`;
-      const extra = [];
-      if (inj) extra.push(`${inj} ${inj > 1 ? "blessées" : "blessée"}`);
-      if (mute) extra.push(`${mute} sans réponse`);
-      if (extra.length) t += `, dont ${extra.join(" et ")}`;
-      return t;
-    };
-    const fireZones = () => {
-      const ids = new Set();
-      for (const k of Live.fireNow) { const [x, y] = k.split(",").map(Number); const z = zoneAtCell(f, x, y); if (z) ids.add(z.id); }
-      return [...ids];
-    };
-    const exitTxt = (id) => {
-      const e = (f.exits || []).find(x => x.id === id);
-      return e && e.side ? `${id} (${ACT_SIDE[e.side] || e.side})` : id;
-    };
-
     switch (s.phase) {
-      case "ALERT": {
-        const a = s.alarm || {};
-        level = "red"; tag = "ALERTE";
-        parts.push("Appeler l'usine pour lever le doute");
-        parts.push(`alarme ${a.zone || "?"}${a.node ? ", capteur " + a.node : ""}`);
-        break;
-      }
-      case "CHECKING":
-        level = "amber"; tag = "LEVÉE DE DOUTE";
-        parts.push("Attendre la réponse de l'usine");
-        parts.push(`alarme ${(s.alarm || {}).zone || "?"}`);
-        break;
-      case "FALSE_ALARM":
-        tag = "FAUSSE ALARME";
-        parts.push("Fausse alarme confirmée par l'usine, retour en surveillance");
-        break;
+      case "ALERT": level = "red"; text = `Alarme ${(s.alarm || {}).zone || ""} : appeler l'usine`; break;
+      case "CHECKING": level = "amber"; text = "Vrai feu ou fausse alarme ?"; break;
+      case "FALSE_ALARM": text = "Fausse alarme, retour en surveillance"; break;
       case "CONFIRMED":
-      case "EN_ROUTE": {
-        level = "amber"; tag = "EN ROUTE";
-        const z = fireZones();
-        parts.push("Choisir la porte d'entrée du drone et le lancer");
-        if (z.length) parts.push(`feu en ${z.join(", ")}`);
-        break;
-      }
+      case "EN_ROUTE": level = "amber"; text = "Choisir la porte et lancer le drone"; break;
       case "DRONE_INSIDE": {
-        level = "amber"; tag = "RECONNAISSANCE";
-        const d = s.drone, dz = d ? zoneAtCell(f, d.x, d.y) : null;
-        parts.push(d && d.state === "RETURNING" ? "Drone en retour vers la sortie" : `Reconnaissance en cours${dz ? ", drone en " + dz.id : ""}`);
-        parts.push(victimTxt() || "aucune victime trouvée pour l'instant");
+        level = "amber";
+        const d = s.drone;
+        text = d && d.state === "RETURNING" ? "Drone en retour vers la sortie" : "Reconnaissance en cours";
         break;
       }
       case "PLANS_READY": {
-        level = "green"; tag = "ACTION";
+        level = "green";
         const e = s.plans && s.plans.entry;
         const m = typeof Mission !== "undefined" ? Mission.get(s) : null;
-        if (m) parts.push(`Étape 1 : ${m.steps[0].title}`);
-        else parts.push(e && e.door ? `Entrer par ${exitTxt(e.door)}` : "Valider le plan d'entrée");
-        const vt = victimTxt(); if (vt) parts.push(vt);
+        text = m ? m.steps[0].title : (e && e.door ? `Entrer par ${e.door}` : "Valider le plan d'entrée");
         break;
       }
-      default:
-        parts.push("Aucun incident, capteurs de l'usine sous surveillance");
+      default: text = "Aucun incident";
     }
+    let alert = "";
     if (urgent) {
-      parts.push(urgentTxt(urgent));
+      alert = `${urgentTxt(urgent)} · ${urgent.tag}`;
       if (urgent.sec < 120) level = "red";
       else if (level !== "red") level = "amber";
     }
-    if (s.phase === "PLANS_READY") parts.push("valider les plans");
-    return { level, tag, text: parts.join(" — ") };
+    return { level, text, alert };
   },
 
   onState(s) {
     const el = document.getElementById("actionStrip");
     if (!el) return;
     const a = this.compose(s);
-    const key = a.level + a.tag + a.text;
+    const key = a.level + a.text + a.alert;
     if (key === this.last) return;
     this.last = key;
     el.className = "action-strip lvl-" + a.level;
-    el.innerHTML = `<span class="as-tag">${U.esc(a.tag)}</span><span class="as-txt">${U.esc(a.text)}</span>`;
+    el.innerHTML = `<span class="as-txt">${U.esc(a.text)}</span>${a.alert ? `<span class="as-alert">${U.esc(a.alert)}</span>` : ""}`;
   },
 };
 

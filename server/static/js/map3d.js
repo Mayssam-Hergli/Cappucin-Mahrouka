@@ -1,7 +1,8 @@
 // map3d.js — vue 3D du plan d'intervention (module ES, Three.js r160 en local).
 //
 // Construite à partir de /api/factory (1 cellule = 1 m) et animée à partir de Live.s,
-// exactement les mêmes données que la carte 2D (map.js), qui reste la vue par défaut.
+// exactement les mêmes données que la carte 2D (map.js). La 3D est la vue par défaut
+// (le plan 2D reste le secours sans WebGL, ou via #2d dans l'URL).
 // La scène n'est créée qu'au premier passage en 3D, et la boucle de rendu ne tourne
 // que lorsque la vue 3D est affichée.
 //
@@ -1140,6 +1141,7 @@ const View3D = window.View3D = {
     const pan = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[k];
     if (pan && v) { v.follow = false; v.pan(pan[0], pan[1]); syncNav(); e.preventDefault(); }
   });
-  // http://SERVER:5000/#3d ouvre directement la vue 3D (la 2D reste la vue par défaut)
-  if (location.hash === "#3d") View3D.show(true);
+  // la vue 3D s'affiche à l'ouverture ; http://SERVER:5000/#2d ouvre directement le plan 2D.
+  // Sans WebGL, show() échoue proprement et le plan 2D reste affiché.
+  if (location.hash !== "#2d") View3D.show(true);
 })();

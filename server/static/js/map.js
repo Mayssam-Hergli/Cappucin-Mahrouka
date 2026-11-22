@@ -1019,14 +1019,24 @@ class MapView {
       ctx.fillStyle = T["map-ink"]; ctx.fillText(e.label, lx, ly);
     }
     if (z && z.top) {
-      z.top.forEach((r, i) => {
+      // plusieurs mesures prises au même endroit : les étiquettes s'empilent sans se chevaucher
+      const placed = [], H = 21;
+      z.top.forEach((r) => {
         const val = Tween.get("lbl" + this.focusZone + r.type, r.value);
         if (val !== r.value) this._animUntil = Math.max(this._animUntil, performance.now() + 50);
         const txt = `${r.label} ${U.fmt(val)} ${r.unit}${r.trend === "up" ? " ▲" : r.trend === "down" ? " ▼" : ""}`;
         const px = (r.x + .5) * v.s, py = (r.y + .5) * v.s;
-        const ly = py - 26 - i * 4;
+        ctx.font = `700 13px ${FONT_COND}`;
+        const w = ctx.measureText(txt).width + 12, ox = this._ox || 0;
+        const cx = U.clamp(px, w / 2 + 2 - ox, this.cssW - w / 2 - 2 - ox);
+        // vers le haut ; vers le bas si le point est trop près du bord haut de la vue
+        const oy = this._view().oy, dir = py + oy - 26 - 3 * (H + 3) < H ? 1 : -1;
+        let ly = py + dir * 26;
+        const hit = () => placed.some(b => Math.abs(b.x - cx) < (b.w + w) / 2 + 2 && Math.abs(b.y - ly) < H + 2);
+        for (let k = 0; k < 6 && hit(); k++) ly += dir * (H + 3);
+        placed.push({ x: cx, y: ly, w });
         ctx.strokeStyle = withAlpha(T["map-ink"], .6); ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, ly + 9); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, ly - dir * 9); ctx.stroke();
         ctx.fillStyle = T["map-ink"]; ctx.beginPath(); ctx.arc(px, py, 2.5, 0, 7); ctx.fill();
         const hot = r.score >= 1;
         this._chip(ctx, txt, px, ly, hot ? T["alarm-fill"] : T["chip-warn-bg"], hot ? T["on-accent"] : T["chip-warn-tx"], 13);

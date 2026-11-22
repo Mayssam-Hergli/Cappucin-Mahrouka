@@ -139,6 +139,22 @@ button, input, select { font-family: var(--f-sys); }
 .readings li { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
 .readings .val { font: 700 1.35rem/1 var(--f-serif); }
 #loupeMap { border-radius: var(--r-sm); }
+/* fiche de zone : chaque bloc (mesures, risques, fiche) bien séparé, rien ne se chevauche */
+.loupe.calm { border-top-color: var(--evac); }
+.lvl { flex: none; padding: .18rem .6rem; font: 800 .72rem/1.2 var(--f-sys); letter-spacing: .06em; }
+.lvl.UNKNOWN { background: var(--lift); color: var(--tx-2); }
+.loupe-side { display: flex; flex-direction: column; }
+.loupe-side .sub { margin: 0 0 .55rem; padding-top: .85rem; border-top: 1px solid var(--hair); }
+.loupe-side .sub:first-child { padding-top: 0; border-top: 0; }
+.loupe-side .readings, .loupe-side .risks, .loupe-side .sheet { margin: 0 0 .85rem; }
+.readings li.calm-line { display: block; padding: .5rem .6rem; border-left: 2px solid var(--evac); background: var(--bg);
+  font-size: .84rem; line-height: 1.4; color: var(--tx-2); }
+.readings li.calm-line b { color: var(--tx); font-weight: 700; white-space: nowrap; }
+.risks { gap: .45rem; }
+.risks li.tagged { align-items: center; gap: .55rem; line-height: 1.35; }
+.risks li.tagged .rtag, .sheet .rtag { margin-right: 0; padding: .16rem .45rem; line-height: 1.2; }
+.sheet { gap: .5rem; }
+.sheet li { align-items: center; }
 
 .m3-btn, .m3-seg, .m3-legend, .m3-hint { border-radius: 999px; }
 .m3-nav { border-radius: var(--r); }

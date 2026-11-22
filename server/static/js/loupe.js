@@ -24,7 +24,7 @@ const Loupe = {
     this.el.setAttribute("aria-hidden", "false");
     this.view.resize();
     this.view.focus(zoneId, !wasOpen);   // fermée -> cadrage direct ; ouverte -> zoom animé
-    if (changed) { document.getElementById("loupeReadings").innerHTML = ""; this.items.clear(); }
+    if (changed) { document.getElementById("loupeReadings").innerHTML = ""; this.items.clear(); this._sig = null; }
     this.dirty = true;
   },
 
@@ -55,19 +55,31 @@ const Loupe = {
     this.dirty = false; this._fullZone = this.zone;
     const z = (Live.s.zones || {})[this.zone];
     if (!z) return;
+    // statut : le même que le bilan des zones (une victime dans une zone « normale » n'est pas RAS)
+    const fz = (Live.factory.zones || []).find(zz => zz.id === this.zone);
+    const st = typeof ZoneCards !== "undefined" && fz ? ZoneCards.summary(Live.s, fz).st : null;
+    const k = st ? st.k : { DANGER: "danger", WARNING: "warn" }[z.level] || "ok";
     const lvl = document.getElementById("loupeLvl");
-    lvl.textContent = LEVEL_FR[z.level] || z.level; lvl.className = "lvl " + z.level;
-    this.el.classList.toggle("warn", z.level !== "DANGER");
+    lvl.textContent = st ? st.t : LEVEL_FR[z.level] || z.level;
+    lvl.className = "lvl " + ({ danger: "DANGER", warn: "WARNING", ok: "NORMAL", unk: "UNKNOWN" })[k];
+    this.el.classList.toggle("warn", k === "warn");
+    this.el.classList.toggle("calm", k === "ok" || k === "unk");
     document.getElementById("loupeTitle").textContent = `${this.zone} ${z.name}`;
     document.getElementById("loupeScan").textContent = `Scannée à ${Math.round(z.scanned * 100)} %`;
 
     // top 3 mesures : la structure DOM change rarement, les chiffres défilent à chaque image
     const ul = document.getElementById("loupeReadings");
     const keys = (z.top || []).map(r => r.type);
-    if (keys.join() !== [...this.items.keys()].join()) {
+    // rien d'anormal : on montre quand même les valeurs normales (l'absence de danger est une info)
+    const calm = keys.length ? "" : (z.air || []).filter(a => ["temp", "co", "o2"].includes(a.type))
+      .sort((a, b) => ["temp", "co", "o2"].indexOf(a.type) - ["temp", "co", "o2"].indexOf(b.type))
+      .map(a => `${a.type === "co" ? "CO " : a.type === "o2" ? "O₂ " : ""}${U.fmt(a.value)} ${a.unit}`).join(" · ");
+    const sig = keys.join() || "calm:" + calm;
+    if (sig !== this._sig) {
+      this._sig = sig;
       ul.innerHTML = "";
       this.items.clear();
-      if (!keys.length) ul.innerHTML = '<li class="empty" style="display:block;border:0;background:none">Aucune valeur anormale.</li>';
+      if (!keys.length) ul.innerHTML = `<li class="calm-line">Aucune valeur anormale${calm ? ` : <b>${U.esc(calm)}</b>` : "."}</li>`;
       for (const r of z.top || []) {
         const li = U.el("li");
         li.innerHTML = `${Icons.ui(READING_ICON[r.type] || "sensor")}<span class="lab">${U.esc(r.label)}</span>

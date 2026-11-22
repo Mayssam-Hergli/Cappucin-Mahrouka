@@ -13,8 +13,7 @@ let MainMap = null;
 
   Live.on((s) => { Panel.onState(s); Loupe.onState(s); });
 
-  // calques
-  document.querySelectorAll("#layers input").forEach(i => i.onchange = () => { MainMap.layers[i.dataset.l] = i.checked; });
+  // calques : tous toujours affichés (feu, fumée, gaz, flèches des plans, zones non vues)
   Live.on(() => { if (Loupe.zone) Loupe.dirty = true; });
 
   // survol + clic sur la carte

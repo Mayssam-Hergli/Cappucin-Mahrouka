@@ -1,0 +1,263 @@
+/* hrika.css : identité visuelle Hrika, la même que le pitch deck.
+   Chargé après app.css et pro.css : il ne change que l'apparence.
+   - Polices : Tinos (serif, titres et grands chiffres) + Inter (texte), copiées en local.
+   - Couleurs du deck : orange-rouge #E8501E, ambre #F2A20C, vert #11806A, bordeaux #B5172F.
+   - Sombre = slides de couverture (brun-noir, lueur rouge). Clair = slides crème, cartes pastel.
+   La carte 2D/3D relit les mêmes variables : elle change de style toute seule. */
+
+@font-face { font-family: "Inter"; src: url("../vendor/fonts/inter-latin-wght-normal.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Tinos"; src: url("../vendor/fonts/tinos-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Tinos"; src: url("../vendor/fonts/tinos-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Tinos"; src: url("../vendor/fonts/tinos-latin-400-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Tinos"; src: url("../vendor/fonts/tinos-latin-700-italic.woff2") format("woff2"); font-weight: 700; font-style: italic; font-display: swap; }
+
+/* ================================================================ couleurs */
+:root, :root[data-theme="dark"] {
+  --bg: #150b08; --lift: #22140e; --hair: #36221a; --hair-2: #4d3226;
+  --tx: #f7eee6; --tx-2: #cdb7a8; --tx-3: #a08676; --on-accent: #ffffff;
+  --alarm: #e8501e; --alarm-tx: #ff8b5e; --alarm-fill: #c93d14;
+  --amber: #f2a20c; --amber-tx: #f5b440;
+  --evac: #2ec4a2; --evac-tx: #6fe0c6; --evac-fill: #11806a;
+  --entry: #5b9be0; --entry-fill: #2f6bb5;
+  --attack: #e0344f; --attack-fill: #b5172f;
+  --gas: #c9d45a; --smoke: #9a8a80;
+  --banner-bg: rgba(21, 11, 8, .94); --shadow: rgba(0, 0, 0, .6); --row-hi: rgba(232, 80, 30, .09);
+  --card: #1e110c; --panel: #1e110c;
+  --peach: rgba(232, 80, 30, .13); --mint: rgba(46, 196, 162, .12); --butter: rgba(242, 162, 12, .12);
+  --peach-line: rgba(232, 80, 30, .35); --mint-line: rgba(46, 196, 162, .32); --butter-line: rgba(242, 162, 12, .32);
+  --ink-chip: #0c0504; --ink-chip-tx: #f2a20c;
+  --glow: rgba(232, 80, 30, .16);
+  /* carte : plan filaire beige-orangé sur fond brun, comme le plan 3D du deck */
+  --map-bg: #170b07; --map-floor: #201109; --map-grid: rgba(255, 170, 120, .045); --map-wall: #e0a06c;
+  --map-door: rgba(247, 238, 230, .85); --map-door-arc: rgba(247, 238, 230, .45);
+  --map-label: rgba(247, 225, 205, .74); --map-label-2: rgba(205, 183, 168, .6);
+  --map-island: rgba(224, 160, 108, .35); --map-exit-label: #6fe0c6;
+  --mat-p-base: #2c1d12; --mat-p-ink: rgba(232, 190, 140, .42);
+  --mat-f-base: #2a1820; --mat-f-ink: rgba(220, 160, 190, .40);
+  --mat-g-base: #2a2414; --mat-g-ink: rgba(230, 210, 120, .5);
+  --mat-x-base: #1d1a1c; --mat-x-ink: rgba(180, 190, 220, .40);
+  --map-burnt: rgba(8, 3, 2, .88); --map-smoke: #9a8a80; --map-fog: #0c0504; --map-fog-ink: rgba(224, 160, 108, .10);
+  --map-gas: #c9d45a; --map-halo: #170b07; --map-ink: #f7eee6; --map-ink-2: #cdb7a8;
+  --map-tag-bg: rgba(16, 8, 5, .93); --map-tag-tx: #ffffff; --chip-warn-bg: #f2a20c; --chip-warn-tx: #1f1206;
+  --cam-bg: #070302;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #faf5ef; --lift: #f3eae1; --hair: #ebe0d5; --hair-2: #d8c7b8;
+  --tx: #1f1210; --tx-2: #4d3b33; --tx-3: #6e5d54; --on-accent: #ffffff;
+  --alarm: #e8501e; --alarm-tx: #b8360f; --alarm-fill: #c93d14;
+  --amber: #e0950a; --amber-tx: #8a5a00;
+  --evac: #11806a; --evac-tx: #0d6b58; --evac-fill: #11806a;
+  --entry: #2f6bb5; --entry-fill: #2f6bb5;
+  --attack: #b5172f; --attack-fill: #b5172f;
+  --gas: #6e7d10; --smoke: #7a6d66;
+  --banner-bg: rgba(250, 245, 239, .96); --shadow: rgba(80, 45, 20, .16); --row-hi: rgba(232, 80, 30, .07);
+  --card: #ffffff; --panel: #ffffff;
+  --peach: #fee5d9; --mint: #d9f0ea; --butter: #fdf0d3;
+  --peach-line: #f7c9b2; --mint-line: #b4ded3; --butter-line: #f3d9a0;
+  --ink-chip: #170b07; --ink-chip-tx: #f2a20c;
+  --glow: rgba(232, 80, 30, .07);
+  --map-bg: #f3ebe1; --map-floor: #fcf8f3; --map-grid: rgba(120, 60, 30, .06); --map-wall: #6b3a22;
+  --map-door: #6b3a22; --map-door-arc: #a07a62;
+  --map-label: #1f1210; --map-label-2: #6e5d54;
+  --map-island: #8a5a3c; --map-exit-label: #0d6b58;
+  --mat-p-base: #f6e6cf; --mat-p-ink: rgba(130, 84, 30, .55);
+  --mat-f-base: #f6e1e6; --mat-f-ink: rgba(150, 50, 80, .45);
+  --mat-g-base: #f1ecca; --mat-g-ink: rgba(110, 104, 16, .65);
+  --mat-x-base: #e6e9ef; --mat-x-ink: rgba(60, 90, 130, .5);
+  --map-burnt: rgba(45, 20, 14, .85); --map-smoke: #6b5f58; --map-fog: #efe6db; --map-fog-ink: rgba(110, 70, 45, .16);
+  --map-gas: #6e7d10; --map-halo: #fcf8f3; --map-ink: #1f1210; --map-ink-2: #4d3b33;
+  --map-tag-bg: #1f1210; --map-tag-tx: #faf5ef; --chip-warn-bg: #f2a20c; --chip-warn-tx: #1f1206;
+  color-scheme: light;
+}
+:root {
+  --f-serif: "Tinos", "Times New Roman", Georgia, serif;
+  --f-sys: "Inter", system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  --f-cond: var(--f-sys); --f-text: var(--f-sys); --f-mono: var(--f-sys);
+  --r: 12px; --r-sm: 8px;
+}
+
+/* ================================================================ base */
+body { font-family: var(--f-sys); font-feature-settings: "tnum" 1, "cv11" 1;
+  background: radial-gradient(ellipse 70% 60% at 35% 45%, var(--glow), transparent 70%), var(--bg); }
+button, input, select { font-family: var(--f-sys); }
+.iconbtn { border-radius: 999px; }
+
+/* ================================================================ bandeau du haut */
+.topbar { background: transparent; border-bottom-color: var(--hair); }
+.brand { gap: .9rem; align-items: baseline; }
+.brand-name { font: 700 1.75rem/1 var(--f-serif); letter-spacing: .01em; color: var(--tx); }
+.brand-sub { font: 500 .72rem/1 var(--f-sys); letter-spacing: .14em; text-transform: uppercase; color: var(--tx-3); white-space: nowrap; }
+.dots { display: inline-flex; gap: .4rem; align-items: center; }
+.dots i { width: .7rem; height: .7rem; border-radius: 50%; background: #e8501e; }
+.dots i:nth-child(2) { background: #f2a20c; }
+.dots i:nth-child(3) { background: #11806a; }
+
+/* frise : cercles reliés, comme « How it works » du deck */
+.timeline li { padding-top: 1.55rem; }
+.timeline li::before { top: .55rem; height: 2px; background: var(--hair); }
+.timeline .tk { top: 0; width: 1.15rem; height: 1.15rem; border: 2px solid var(--hair-2); background: var(--bg); }
+.timeline .nm { font: 700 .95rem/1.15 var(--f-serif); color: var(--tx-3); }
+.timeline .tm { font: 600 .75rem/1.3 var(--f-sys); color: var(--alarm-tx); }
+.timeline li.done::before { background: var(--alarm); opacity: .55; }
+.timeline li.done .tk { background: var(--peach); border-color: var(--alarm); }
+.timeline li.done .nm { color: var(--tx-2); }
+.timeline li.now .tk { transform: none; background: var(--alarm-fill); border-color: var(--alarm);
+  box-shadow: 0 0 0 5px var(--peach), 0 0 18px var(--alarm); }
+.timeline li.now .nm { color: var(--tx); }
+.timeline li.now[data-p="ALERT"] .tk, .timeline li.now[data-p="CHECKING"] .tk { background: var(--alarm-fill); border-color: var(--alarm); }
+.timeline li.false .tk { background: var(--amber); border-color: var(--amber); box-shadow: none; }
+
+.clock-box small { font: 600 .66rem/1 var(--f-sys); letter-spacing: .12em; text-transform: uppercase; margin-bottom: .2rem; }
+.chrono { font: 700 2.3rem/1 var(--f-serif); letter-spacing: 0; }
+.chrono.on { color: var(--alarm-tx); }
+.live { font: 600 .8rem var(--f-sys); }
+.health { border-radius: var(--r); }
+
+/* ================================================================ carte */
+.map-wrap { background: var(--map-bg); }
+.map-bar { background: transparent; border-top-color: var(--hair); }
+.layers label, .viewseg, .wind button { border-radius: 999px; }
+.layers label:has(input:checked) { color: var(--alarm-tx); border-color: var(--alarm); background: var(--peach); }
+.viewseg button { font: 700 .8rem/1 var(--f-sys); }
+.viewseg button[aria-pressed="true"] { background: var(--alarm-fill); color: var(--on-accent); }
+.wind input { accent-color: var(--alarm); }
+.wind b { font: 700 1.05rem var(--f-serif); }
+
+.action-strip { background: var(--card); border-left-width: 6px; }
+.as-tag { border-radius: 999px; padding: .32rem .7rem; font: 700 .7rem/1 var(--f-sys); letter-spacing: .12em; }
+.as-txt { font: 700 1.4rem/1.2 var(--f-serif); letter-spacing: 0; }
+
+.banner { border-radius: var(--r-sm); font: 700 1.05rem/1.2 var(--f-serif); box-shadow: 0 6px 24px var(--shadow); }
+.tooltip { border-radius: var(--r-sm); box-shadow: 0 8px 26px var(--shadow); }
+.tooltip b { font: 700 1rem var(--f-serif); }
+.loupe { border-radius: var(--r); overflow: hidden; background: var(--card); }
+.loupe-head b { font: 700 1.25rem var(--f-serif); }
+.lvl, .rtag { border-radius: 999px; }
+.loupe-side .sub { font: 700 .68rem/1 var(--f-sys); letter-spacing: .12em; text-transform: uppercase; color: var(--alarm-tx); margin-bottom: .5rem; }
+.readings li { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.readings .val { font: 700 1.35rem/1 var(--f-serif); }
+#loupeMap { border-radius: var(--r-sm); }
+
+.m3-btn, .m3-seg, .m3-legend, .m3-hint { border-radius: 999px; }
+.m3-nav { border-radius: var(--r); }
+.m3-nav button { border-radius: 999px; }
+.m3-seg button[aria-pressed="true"], .m3-nav button[aria-pressed="true"] { background: var(--alarm-fill); color: var(--on-accent); }
+
+/* ================================================================ colonne de droite : cartes */
+.side { counter-reset: sec; gap: .65rem; padding: .75rem .75rem .9rem; border-left-color: var(--hair); }
+.side > .sec, .side > .decisions { flex: none; border: 1px solid var(--hair); border-radius: var(--r); background: var(--card); padding: 1rem 1.05rem 1.05rem; }
+.side > .sec.grow { flex: 1; }
+.side > .demo { border-radius: var(--r); border: 1px dashed var(--hair-2); }
+
+/* titres de section : « 01 / DÉCISIONS », comme les sur-titres du deck */
+.sec h3, .decisions h3 { counter-increment: sec; align-items: baseline; margin-bottom: .8rem;
+  font: 700 .74rem/1.2 var(--f-sys); letter-spacing: .13em; text-transform: uppercase; color: var(--alarm-tx); }
+.sec h3::before, .decisions h3::before { content: counter(sec, decimal-leading-zero) " /"; }
+.sec h3 > .ic, .decisions h3 > .ic { display: none; }
+.sec h3 .meta { font: 500 .76rem var(--f-sys); letter-spacing: 0; text-transform: none; }
+.sec h3 .count { font: 700 1.5rem/1 var(--f-serif); letter-spacing: 0; color: var(--tx); align-self: center; }
+
+.decisions { border-left-width: 1px !important; }
+.decisions[data-tone="alarm"] { border-color: var(--peach-line); box-shadow: inset 4px 0 0 var(--alarm); }
+.decisions[data-tone="amber"] { border-color: var(--butter-line); box-shadow: inset 4px 0 0 var(--amber); }
+.decisions[data-tone="entry"] { box-shadow: inset 4px 0 0 var(--entry); }
+.act .ask { font: 700 1.6rem/1.12 var(--f-serif); }
+.big { border-radius: 999px; font: 700 1.05rem var(--f-sys); min-height: 3.1rem; }
+.big.alarm { background: var(--alarm-fill); box-shadow: 0 6px 20px rgba(232, 80, 30, .3); }
+.doors button { border-radius: var(--r-sm); background: var(--card); }
+.doors button b { font: 700 1.35rem/1 var(--f-serif); }
+.track .t, .log .t { font: 500 .78rem/1.55 var(--f-sys); }
+
+/* drone */
+.cam { border-radius: var(--r-sm); font-family: var(--f-sys); }
+.gauge-val { font: 700 2.1rem/1 var(--f-serif); }
+.gauge-bar { height: .55rem; border-radius: 999px; background: var(--hair); }
+.gauge-bar::after { display: none; }
+#droneBar { border-radius: 999px; background: linear-gradient(90deg, var(--amber), var(--alarm) 55%, var(--attack)); }
+.gauge-bar .lim { background: var(--attack); width: 3px; border-radius: 2px; }
+.gauge-bar .lim-lab { font: 700 .72rem var(--f-sys); color: var(--attack); }
+.gauge .state { font: 600 .9rem var(--f-sys); }
+
+/* victimes */
+.vrow .id { font: 700 1.15rem var(--f-serif); }
+.vrow .st { font: 600 .86rem var(--f-sys); }
+.vdet .vb button { border-radius: 999px; font: 600 .8rem var(--f-sys); }
+.vdet .vb button[aria-pressed="true"] { background: var(--peach); border-color: var(--alarm); color: var(--alarm-tx); }
+
+/* plans : cartes pastel menthe / pêche / jaune, comme « Three plans » du deck */
+#plans { display: flex; flex-direction: column; gap: .55rem; }
+.plan { padding: .75rem .85rem .8rem !important; border: 1px solid transparent !important; border-radius: var(--r-sm); }
+.plan.p-evac { background: var(--mint); border-color: var(--mint-line) !important; }
+.plan.p-entry, .plan.mission { background: var(--peach); border-color: var(--peach-line) !important; }
+.plan.p-attack { background: var(--butter); border-color: var(--butter-line) !important; }
+.plan-h { font: 700 1.12rem/1.2 var(--f-serif); margin-bottom: .15rem; }
+.plan-h .num { font: 700 1.12rem/1 var(--f-serif); color: var(--tx-3); }
+.plan-h .key { display: none; }
+.plan li b { font: 700 1rem var(--f-serif); }
+.plan li .prio, .plan li.ms .warn { font: 700 .74rem var(--f-sys); letter-spacing: .04em; text-transform: uppercase; }
+.plan li.ext .ord, .plan li.ms .ord { font: 700 .85rem var(--f-serif); }
+/* agent d'extinction : bloc sombre + mot ambre en serif, comme Water / CO₂ / Powder */
+.agent { display: inline-block; padding: .08rem .55rem; margin: 0 .1rem; border-radius: 6px; background: var(--ink-chip);
+  color: var(--ink-chip-tx); font: 700 .95rem/1.35 var(--f-serif); }
+.tagline { margin: .85rem 0 0; font: 700 1.08rem/1.25 var(--f-serif); font-style: italic; color: var(--tx); }
+.tagline em { font-style: italic; }
+.tagline em.hl { color: var(--alarm); }
+
+/* délais, journal */
+.cd { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.cd-tag { font: 700 .95rem/1 var(--f-serif); }
+.cd-now .cd-tag { border-radius: 999px; font-family: var(--f-sys); font-size: .78rem; }
+.log li { border-bottom-color: var(--hair); border-radius: 4px; }
+.log li.latest { box-shadow: inset 3px 0 0 var(--alarm); }
+.demo-head b { font: 700 1rem var(--f-serif); }
+.demo button { border-radius: 999px; }
+.busy-toast { border-radius: var(--r-sm); }
+
+@media (max-width: 1000px) {
+  .brand-sub { display: none; }
+}
+.agent { text-transform: capitalize; }
+/* la frise ne touche pas le haut de l'écran : place pour le halo de l'étape en cours */
+.timeline { padding-top: .5rem; }
+
+/* ================================================================ moins d'encombrement */
+/* le message de phase sur la carte répétait le bandeau d'action et la frise */
+.map-wrap > .banner { display: none !important; }
+
+/* bandeau d'action : un ordre court + une urgence au plus */
+.action-strip { justify-content: space-between; }
+.as-alert { flex: none; display: inline-flex; align-items: center; gap: .45rem; padding: .38rem .85rem; border-radius: 999px;
+  background: var(--alarm-fill); color: var(--on-accent); font: 700 .9rem/1 var(--f-sys); white-space: nowrap; }
+.as-alert::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; animation: as-pulse 1.2s ease-in-out infinite; }
+.action-strip.lvl-amber .as-alert { background: var(--chip-warn-bg); color: var(--chip-warn-tx); }
+@keyframes as-pulse { 50% { opacity: .25; } }
+
+/* sections repliées : on clique pour voir (historique des décisions, journal) */
+.fold > summary { list-style: none; cursor: pointer; user-select: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+#foldDecisions > summary { display: flex; align-items: center; gap: .45rem; padding: .35rem 0 .1rem;
+  font: 600 .82rem var(--f-sys); color: var(--tx-3); }
+#foldDecisions > summary::before, .fold-card > summary h3::after { content: ""; width: .45rem; height: .45rem; flex: none;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .2s; }
+#foldDecisions[open] > summary::before, .fold-card[open] > summary h3::after { transform: rotate(45deg); }
+#foldDecisions > summary:hover { color: var(--tx); }
+#foldDecisions[open] > summary { margin-bottom: .4rem; }
+.fold-n { min-width: 1.3rem; padding: .05rem .4rem; border-radius: 999px; background: var(--lift); color: var(--tx-2);
+  font: 700 .72rem/1.4 var(--f-sys); text-align: center; }
+.fold-n:empty { display: none; }
+.act:not(:empty) + #foldDecisions { margin-top: .2rem; }
+.decisions:has(.act:empty) h3 { margin-bottom: .2rem; }
+.fold-card > summary h3 { margin: 0 !important; }
+.fold-card > summary h3::after { margin-left: auto; align-self: center; color: var(--tx-3); }
+.fold-card[open] > summary h3 { margin-bottom: .7rem !important; }
+.sec.grow:has(.fold-card:not([open])) { flex: none; min-height: 0; }
+.fold-card[open] { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#cardCountdown:has(.cd-empty) { display: none !important; }
+/* liaison : un point vert seul ; rouge + « Liaison coupée » si le serveur ne répond plus */
+.live { min-width: 0; gap: .45rem; }
+.live .dot { width: .6rem; height: .6rem; box-shadow: 0 0 0 3px var(--mint); }
+.live.stale { color: var(--alarm-tx); }
+.live.stale .dot { background: var(--alarm); box-shadow: 0 0 0 3px var(--peach); animation: as-pulse 1s ease-in-out infinite; }
+.live .txt:empty { display: none; }

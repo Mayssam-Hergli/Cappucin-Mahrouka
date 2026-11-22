@@ -764,7 +764,8 @@ class View3DImpl {
     }
     if (showPlans) this.chev.offset.x -= dt * 0.9;
 
-    // trajectoire du drone
+    // trajectoire du drone : seulement pendant la reconnaissance, comme en 2D
+    this.trailGroup.visible = s.phase === "DRONE_INSIDE";
     if (key("trail", () => s.trail || [])) {
       this._clear(this.trailGroup);
       const mat = new THREE.MeshBasicMaterial({ color: col(T["map-ink"]), transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });

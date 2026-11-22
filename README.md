@@ -359,10 +359,11 @@ In the live demo, the laptop webcam stands in for the thermal camera. A pretrain
 | Item | Role |
 |---|---|
 | ESP32 | The factory's fixed sensor node: reads the sensors and sends alerts over WiFi |
-| Gas sensor (MQ-2 / MQ-135) | Detects smoke or gas and triggers the alarm |
-| Temperature sensor (DHT22 / DHT11) | Detects heat that rises fast |
-| Flame sensor (optional) | Detects a flame |
-| Buzzer + green / yellow / red LEDs | Local alarm on the node |
+| Gas sensor (MQ-2) | Detects smoke or gas and triggers the alarm |
+| Temperature + humidity sensor (DHT11) | Detects heat that rises fast |
+| Flame sensor | Detects a flame |
+| Red LED + passive buzzer | Local alarm on the node |
+| 16×2 LCD (I2C) | Shows temperature, humidity and the alarm on the node |
 | Laptop webcam | Stands in for the drone's thermal camera |
 | Laptop speaker | The drone's voice |
 

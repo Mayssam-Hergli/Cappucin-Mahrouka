@@ -1,7 +1,7 @@
 # Handover: Hrika sensor node hardware, wiring and bench test
 
-> **To Claude:** read this whole file first. The user has wired the Hrika sensor node (ESP32 + sensors + LEDs + buzzer + I2C LCD) by hand, following the wiring below. Your job, in two stages:
-> 1. **Now:** write a **hardware self-test sketch**, compile and upload it to the ESP32, and walk the user through checking every part. The LCD must show **`CHA3ALNI`**.
+> **To Claude:** read this whole file first. The user has **wired the Hrika sensor node and tested it part by part** with small Arduino IDE sketches (section 2b): ESP32 + red LED + I2C LCD + buzzer + DHT22 + flame sensor + MQ-2 gas sensor, all following the wiring in section 3. Your job, in two stages:
+> 1. **Now:** turn the bench test into a proper sketch, **`iot/hw_test/hw_test.ino`** (section 4), compile and upload it, and confirm with the user that every part still works together. The LCD must show **`CHA3ALNI`**. Settle the three open points of section 2b (LCD address, buzzer type, flame logic).
 > 2. **Later:** when the team gives you the actual demo script, flash it on the same hardware with the same pins (section 7).
 >
 > Explain your plan in a few lines before writing code.
@@ -23,14 +23,100 @@
 
 | Part | Notes |
 |---|---|
-| ESP32 dev board, **ESP-WROOM-32D**, 38 pins (DevKitC layout) | Tested on its own with Arduino IDE: it works. Sits **outside** the breadboard, on a non-metal surface. Powered by USB (micro-USB). Has a **5V** pin (next to CMD) and **3 GND pins**. |
-| Mini breadboard, 170 holes, **no power rails** | 17 rows × 10 columns. Some rows are used as rails (see section 3). |
+| ESP32 dev board, **ESP-WROOM-32D**, 38 pins (DevKitC layout) | Works (tested with Arduino IDE). Sits **outside** the breadboard, on a non-metal surface. Powered by USB (micro-USB). Has a **5V** pin (next to CMD) and **3 GND pins**. |
+| Mini breadboard, 170 holes, **no power rails** | 17 rows × 10 columns. **Only the left half (a–e) is used**; some rows act as rails (see section 3). The right half (f–j) is empty. |
 | **LCD 16×2 with I2C backpack** (PCF8574) | 4 pins: GND, VCC, SDA, SCL. **Not** an OLED. Powered at **5 V**. I2C address usually **0x27** or **0x3F**: scan first. Contrast set by the blue potentiometer on the back. |
 | Gas sensor **MQ-2** module | Powered at **5 V**. Uses AO only, through a voltage divider (10 kΩ + 20 kΩ). DO not connected. Needs ~20 min warm-up for stable readings. |
-| **DHT22** module (3 pins: +, out, −) | 3.3 V. |
+| **DHT11** module, blue (3 pins: +, out, −) | 3.3 V. Earlier notes said DHT22; on the bench it only answers as a **DHT11** (the firmware uses DHT11 on the real board, DHT22 in Wokwi). |
 | **Flame sensor** module | 3.3 V. Uses DO only (most modules: **LOW = flame detected**; check). |
-| 3 LEDs: green, yellow, red | Each with a 220 Ω resistor to GND. |
+| **1 red LED** | With a 220 Ω resistor. The green and yellow LEDs were removed: only the red one is wired. |
 | Buzzer | Wired directly to the GPIO (no transistor). Probably active: check by driving it HIGH; if it only clicks, it's passive → use `tone()` / LEDC. |
+
+### 2b. Bench test already done by the user (Arduino IDE, one part at a time)
+
+| Part | Test | Result |
+|---|---|---|
+| 1. Red LED (GPIO 33) | blink | works (also lights with 3V3 straight into a13) |
+| 2. LCD (I2C 21/22) | scan + show `CHA3ALNI` | works |
+| 3. Buzzer (GPIO 32) | test A: HIGH/LOW beeps; test B: `tone()` | works |
+| 4. DHT22 (GPIO 4) | temperature + humidity every 2 s | works |
+| 5. Flame (GPIO 27, DO) | lighter near the sensor | works |
+| 6. MQ-2 (GPIO 34 via divider) | baseline + unlit lighter gas | works |
+
+The user reached the last step with the combined sketch below (everything together: alarm = flame or gas above baseline → red LED + buzzer + LCD message). **Open points to confirm with the user, not to guess:**
+- **LCD I2C address** (the sketch scans; ask what the Serial Monitor printed, usually 0x27 or 0x3F) and hard-code it with the scan as fallback;
+- **buzzer type**: did test A (plain HIGH) beep → active, or only test B (`tone()`) → passive;
+- **flame logic**: does DO go LOW or HIGH on flame on this module.
+
+**Settled during the guided test (`iot/hw_test/hw_test.ino`):**
+
+| Point | Result |
+|---|---|
+| LCD I2C address | **0x27** (scan), hard-coded with the scan as fallback |
+| Buzzer | **passive**: a plain HIGH only rattles, `tone(32, 2000)` is clean |
+| Flame logic | **LOW = flame**; a lighter makes DO toggle hundreds of times, so the firmware holds the flame alarm 3 s |
+| Temperature sensor | answers as a **DHT11** (24 °C, 53 %), not a DHT22 |
+| LCD content | the user dropped `CHA3ALNI`: line 1 = temperature + humidity, line 2 = gas status / alarm, no voltage shown |
+| Red LED | OK (lit, electrical path 1982 mV) |
+| Gas MQ-2 | **open**: sensor warm (powered) but GPIO 34 flat at ~142 mV (= 0 V, the ESP32 ADC floor). Check the AO → a8 → 10 kΩ → a12 / GPIO 34 path |
+
+The real firmware `iot/hrika_node/hrika_node.ino` was updated to this hardware (LCD, single red LED: off / slow blink / steady, passive buzzer, DHT11, divider ×1.5, flame hold, `secrets.h` for WiFi + optional HMAC key).
+
+Combined sketch the user ran (reference; reuse it, keep the pins):
+
+```cpp
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <DHT.h>
+
+const int RED = 33, BUZZER = 32, FLAME = 27, GAS = 34, DHT_PIN = 4;
+const bool ACTIVE_BUZZER = true;   // false if only the tone test worked
+const int GAS_ALARM_DELTA = 300;   // mV above the clean-air baseline = gas alarm
+
+DHT dht(DHT_PIN, DHT22);
+LiquidCrystal_I2C *lcd = nullptr;
+int gasBaseline = 0;
+
+void buzz(bool on) {
+  if (ACTIVE_BUZZER) digitalWrite(BUZZER, on);
+  else if (on) tone(BUZZER, 2000); else noTone(BUZZER);
+}
+int gasMilliVolts() { return analogReadMilliVolts(GAS) * 3 / 2; }   // divider undone
+
+void setup() {
+  Serial.begin(115200); delay(500);
+  pinMode(RED, OUTPUT); pinMode(BUZZER, OUTPUT); pinMode(FLAME, INPUT);
+  Wire.begin(21, 22);
+  for (byte a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) { lcd = new LiquidCrystal_I2C(a, 16, 2); break; }
+  }
+  if (lcd) { lcd->init(); lcd->backlight(); lcd->setCursor(4, 0); lcd->print("CHA3ALNI"); }
+  dht.begin();
+  if (lcd) { lcd->setCursor(0, 1); lcd->print("Calibrating gas "); }
+  long sum = 0;
+  for (int i = 0; i < 50; i++) { sum += gasMilliVolts(); delay(200); }
+  gasBaseline = sum / 50;
+}
+
+void loop() {
+  int gas = gasMilliVolts();
+  bool flame = digitalRead(FLAME) == LOW;
+  bool gasAlarm = gas > gasBaseline + GAS_ALARM_DELTA;
+  float t = dht.readTemperature();
+  bool alarm = flame || gasAlarm;
+  digitalWrite(RED, alarm);
+  buzz(alarm);
+  if (lcd) {
+    char line[17];
+    if (flame)         snprintf(line, sizeof line, "FLAME DETECTED! ");
+    else if (gasAlarm) snprintf(line, sizeof line, "GAS! %4d mV    ", gas);
+    else               snprintf(line, sizeof line, "%4dmV %4.1fC    ", gas, t);
+    lcd->setCursor(0, 1); lcd->print(line);
+  }
+  delay(500);
+}
+```
 
 ---
 
@@ -43,11 +129,9 @@
 | 3V3 (corner next to EN) | breadboard **a1** → row 1 left = **3.3 V rail** | power |
 | 5V (corner next to CMD) | breadboard **a3** → row 3 left = **5 V rail** | power |
 | GND (next to 23) | breadboard **a5** → row 5 left = GND | power |
-| GND (between 12 and 13) | breadboard **f9** → row 9 right = GND | power |
-| GND (between 19 and 21) | breadboard **a17** → row 17 left = GND. Alternative that is also fine: a male–male jumper **g9 → a17** (left from an earlier plan) | power |
-| **GPIO 25** | green LED + (f1) | output |
-| **GPIO 26** | yellow LED + (f4) | output |
-| **GPIO 33** | red LED + (f14) | output |
+| GND (between 12 and 13) | **not used** | — |
+| GND (between 19 and 21) | breadboard **a17** → row 17 left = GND (remove the old g9 → a17 jumper if it's still there) | power |
+| **GPIO 33** | breadboard **a13** (red LED, through its resistor) | output |
 | **GPIO 32** | buzzer + (direct wire) | output |
 | **GPIO 34** | gas divider middle (a12) | analog input (input-only pin, no pull-up) |
 | **GPIO 4** | DHT22 out (direct wire) | DHT data |
@@ -57,25 +141,27 @@
 
 ### Breadboard (rows 1–17 top to bottom; left half a–e, right half f–j; the 5 holes of one half-row are connected)
 
-| Row | Left half (a–e) | Right half (f–j) |
-|---|---|---|
-| 1 | 3.3 V: ESP 3V3 (a1), DHT + (c1), flame VCC (d1) | GPIO 25 (f1), green LED long leg (g1) |
-| 2 | — | green LED short leg (g2), 220 Ω j2 → j9 |
-| 3 | 5 V: ESP 5V (a3), MQ VCC (b3), LCD VCC (d3) | — |
-| 4 | — | GPIO 26 (f4), yellow LED long leg (g4) |
-| 5 | GND: ESP GND (a5), DHT − (b5), flame GND (c5), MQ GND (d5), LCD GND (e5) | yellow LED short leg (g5), 220 Ω i5 → i9 |
-| 8 | MQ AO (a8), 10 kΩ e8 → e12 | — |
-| 9 | — | GND: ESP GND (f9), ends of the three 220 Ω (j9, i9, h9); g9 may hold the optional jumper to a17 |
-| 12 | GPIO 34 (a12), 10 kΩ end (e12), 20 kΩ start (c12) | — |
-| 13 | — | red LED short leg (g13), 220 Ω h13 → h9 |
-| 14 | — | GPIO 33 (f14), red LED long leg (g14) |
-| 15 | only if 2 × 10 kΩ replace the 20 kΩ: c12 → c15, e15 → e17 | — |
-| 17 | GND: ESP GND or jumper from g9 (a17), 20 kΩ end (c17), buzzer − (b17) | — |
+| Row | Left half (a–e) |
+|---|---|
+| 1 | 3.3 V: ESP 3V3 (a1), DHT + (c1), flame VCC (d1) |
+| 3 | 5 V: ESP 5V (a3), MQ VCC (b3), LCD VCC (d3) |
+| 5 | GND: ESP GND (a5), DHT − (b5), flame GND (c5), MQ GND (d5), LCD GND (e5) |
+| 8 | MQ AO (a8), 10 kΩ e8 → e12 |
+| 12 | GPIO 34 (a12), 10 kΩ end (e12), 20 kΩ start (c12) |
+| 13 | GPIO 33 (a13), 220 Ω e13 → e16 |
+| 16 | 220 Ω end (e16), red LED long leg (d16) |
+| 17 | GND: ESP GND (a17), 20 kΩ end (c17), buzzer − (b17), red LED short leg (d17) |
+
+The right half (f–j) and the second breadboard are **not used**.
+
+Red LED path: **GPIO 33 wire (a13) → 220 Ω (e13 → e16) → long leg (+) in d16 → LED → short leg (−) in d17 = GND**. HIGH = on. GPIO 25 and 26 are free.
+
+This layout needs the **single 20 kΩ** resistor (c12 → c17): the 2 × 10 kΩ variant would collide with the red LED's resistor in column e.
 
 ### What follows from the wiring
 
 - **Gas reading:** GPIO 34 sees `V_AO × 20 / (10 + 20)` = 2/3 of the sensor output. 5 V at AO → 3.33 V at the pin. To get the sensor voltage back: `V_AO = V_pin × 1.5`. Use `analogReadMilliVolts(34)` on ESP32 (calibrated) rather than raw `analogRead`.
-- **LEDs:** HIGH = on (anode on the GPIO, cathode → 220 Ω → GND).
+- **LEDs:** HIGH = on (GPIO → 220 Ω → anode; cathode straight into a GND row).
 - **LCD at 5 V on a 3.3 V ESP32:** the backpack's pull-ups go to 5 V. It's a common setup and usually fine; the user accepted it for the night. If I2C is flaky, suggest lowering the clock (`Wire.setClock(50000)`) before anything else.
 - **Buzzer straight on a GPIO:** fine for a small buzzer; keep beeps short in the test.
 
@@ -83,12 +169,12 @@
 
 ## 4. The task: a hardware self-test sketch
 
-Create **`iot/hw_test/hw_test.ino`** (Arduino IDE needs the folder and file to share a name). It should:
+Create **`iot/hw_test/hw_test.ino`** (Arduino IDE needs the folder and file to share a name), starting from the combined sketch of section 2b and adding the guided checks below. It should:
 
 1. **Serial at 115200**, print a short banner and what will be tested.
 2. **I2C scan** on SDA 21 / SCL 22 (`Wire.begin(21, 22)`). Print every address found. Pick the LCD address automatically (0x27 or 0x3F, or the only device found). If nothing is found, print what to check (VCC/GND on the LCD, SDA/SCL swapped, wires seated) and continue with the other tests.
 3. **LCD:** init, backlight on, clear, show **`CHA3ALNI`** centred on line 1 (and e.g. `Hrika test` on line 2). Ask the user: "Do you see CHA3ALNI? If the screen is lit but empty, turn the blue screw on the back slowly."
-4. **LEDs:** green, yellow, red one at a time (1 s each), printing which one should be on; then all three together; then off.
+4. **Red LED (GPIO 33):** on 1 s, off 1 s, three times, then fast blinking for 2 s; print what the user should see. If it stays dark, tell the user how to test it without code: a wire from ESP **3V3** into **a13** (in place of the GPIO 33 wire) should light it; if not, the problem is the LED (flip it), its resistor or row 17, not the code.
 5. **Buzzer:** two short beeps (100 ms). Print "you should hear two beeps".
 6. **DHT22:** read temperature and humidity a few times (≥ 2 s apart, DHT22 limit). Print values; a `NaN` means a wiring or library problem.
 7. **Flame sensor:** print the DO level every 500 ms for ~10 s and ask the user to hold a lighter flame near it (or cover/uncover it): the value should flip. Most modules are LOW on flame; there's also a sensitivity screw on the module.
@@ -133,7 +219,7 @@ arduino-cli monitor -p COMx -c baudrate=115200
 | LCD dark, no backlight | LCD VCC in row 3 (5 V) and GND in row 5; 5V wire to a3; USB plugged? |
 | LCD lit, no text | Contrast screw; wrong I2C address (use the scan result) |
 | I2C scan finds nothing | SDA/SCL swapped (21 = SDA, 22 = SCL); LCD GND; loose female ends |
-| An LED never lights | LED reversed (long leg must be in the GPIO row: 1, 4, 14); resistor not reaching row 9; GND wire to f9 |
+| The red LED never lights | LED reversed (short leg must be in d17, long leg in d16); resistor not in e13 and e16; GPIO 33 wire not in a13; legs not pushed fully in |
 | DHT22 always NaN | out wire on GPIO 4; + in row 1, − in row 5; wait 2 s after power-up |
 | Flame never changes | DO on GPIO 27; adjust the module's sensitivity screw |
 | Gas stuck at 0 mV | AO in a8, both resistors, GPIO 34 wire in row 12, GND reaching row 17 |
@@ -146,7 +232,7 @@ arduino-cli monitor -p COMx -c baudrate=115200
 
 The team will hand you the demo script (the real firmware for the pitch) later. When it arrives:
 
-1. **Pins:** it must use exactly the pin map of section 3. Put every pin in one clearly marked block at the top of each sketch (`// --- pins (see HANDOVER-hardware.md) ---`) so the test sketch and the demo script stay identical on this point. If the demo script uses other pins, point it out and adapt the script, never the wiring.
+1. **Pins:** it must use exactly the pin map of section 3. **Only the red LED exists**: if the script drives green/yellow LEDs (normal/warning), map those states onto the red LED (e.g. off = normal, slow blink = warning, steady on = alarm), plus the LCD text and the buzzer, and confirm the mapping with the user. Put every pin in one clearly marked block at the top of each sketch (`// --- pins (see HANDOVER-hardware.md) ---`) so the test sketch and the demo script stay identical on this point. If the demo script uses other pins, point it out and adapt the script, never the wiring.
 2. **Display:** the old firmware `iot/hrika_node/hrika_node.ino` was written for a 0.96" SSD1306 **OLED**. The hardware has a **16×2 I2C LCD**: use the LCD library and the I2C address that worked in the test.
 3. **Never block on a missing part:** if the LCD or the DHT22 fails to start, the node must carry on and still send its alarm (no `for(;;)` after a failed `begin()`).
 4. **Settings for the real run:** `IN_WOKWI = false`, the hotspot SSID and password, `SERVER_URL = "http://<server IP>:5000/api/sensor"` (the laptop running the server, same Wi-Fi). Ask the user for these; don't guess them.

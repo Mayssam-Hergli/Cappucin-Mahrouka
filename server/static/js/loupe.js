@@ -73,7 +73,8 @@ const Loupe = {
     // rien d'anormal : on montre quand même les valeurs normales (l'absence de danger est une info)
     const calm = keys.length ? "" : (z.air || []).filter(a => ["temp", "co", "o2"].includes(a.type))
       .sort((a, b) => ["temp", "co", "o2"].indexOf(a.type) - ["temp", "co", "o2"].indexOf(b.type))
-      .map(a => `${a.type === "co" ? "CO " : a.type === "o2" ? "O₂ " : ""}${U.fmt(a.value)} ${a.unit}`).join(" · ");
+      .map(a => `${a.type === "co" ? "CO " : a.type === "o2" ? "O₂ " : ""}${typeof ZoneCards !== "undefined"
+        ? ZoneCards.stable(this.zone, a.type, a.value) : U.fmt(a.value)} ${a.unit}`).join(" · ");
     const sig = keys.join() || "calm:" + calm;
     if (sig !== this._sig) {
       this._sig = sig;

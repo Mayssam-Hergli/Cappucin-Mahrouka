@@ -24,6 +24,24 @@ const ZoneCards = (() => {
   const RANK = { danger: 3, warn: 2, unk: 1, ok: 0 };
   let last = "";
 
+  // Valeurs stables à l'écran : arrondies, et le chiffre affiché ne change que si l'écart
+  // dépasse un seuil. Sans ça, le petit bruit des capteurs simulés (zones.py) faisait danser
+  // les décimales toutes les 0,5 s alors que rien ne se passait.
+  const STEP = {
+    temp: (v) => Math.max(1, Math.abs(v) * 0.03), co: (v) => Math.max(3, Math.abs(v) * 0.05),
+    o2: () => 0.3, smoke: () => 5, gas: () => 2, mq: (v) => Math.max(20, Math.abs(v) * 0.05),
+  };
+  const DEC = { o2: 1 };                    // O₂ : 1 décimale (seuil ARI à 19,5 %) ; le reste en entier
+  const shownVal = new Map();               // "zone:type" -> valeur affichée
+  function stable(zid, type, v) {
+    const k = zid + ":" + type, old = shownVal.get(k), step = (STEP[type] || (() => 1))(v);
+    const keep = old != null && Math.abs(v - old) < step;
+    const out = keep ? old : v;
+    shownVal.set(k, out);
+    const d = DEC[type] || 0;
+    return (Math.round(out * 10 ** d) / 10 ** d).toFixed(d).replace(".", ",");
+  }
+
   const inRect = (r, x, y) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3];
   const nearest = (list, cx, cy) => (list || []).slice()
     .sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy))[0];
@@ -62,19 +80,23 @@ const ZoneCards = (() => {
     // air : les 3 mesures les plus graves + consigne respiratoire
     const air = (zs.air || zs.top || []).slice();
     const by = Object.fromEntries(air.map(a => [a.type, a]));
-    // valeurs anormales d'abord (la pire en tête), puis toujours le même ordre : on lit vite
+    // les 3 mesures retenues : les anormales d'abord (les plus graves), puis toujours affichées
+    // dans le même ordre. Trier l'affichage par gravité faisait permuter deux valeurs proches
+    // (O₂ et fumée) à chaque petit changement de tendance.
     const ORDER = ["temp", "co", "o2", "smoke", "gas", "mq"];
     const bad = (a) => a.score >= 0.6;
     const shown = air.filter(a => a.type !== "mq" || !(by.co || by.smoke))
       .sort((a, b) => (bad(b) - bad(a)) || (bad(a) ? b.score - a.score : ORDER.indexOf(a.type) - ORDER.indexOf(b.type)))
-      .slice(0, 3);
+      .slice(0, 3)
+      .sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type));
     const ari = (by.co && by.co.value >= 50) || (by.o2 && by.o2.value < 19.5) || (by.smoke && by.smoke.value >= 30);
     const breathOk = !ari && by.co && by.o2 && by.co.src === "drone" && by.o2.src === "drone";
     if (shown.length) {
       const vals = shown.map(a => {
         const c = a.score >= 1 ? "red" : a.score >= 0.6 ? "amber" : "";
         const tr = a.trend === "up" ? (a.type === "o2" ? " ↓" : " ↑") : "";
-        return `<span class="zc-v ${c}">${U.esc(SHORT[a.type] ? SHORT[a.type](U.fmt(a.value)) : U.fmt(a.value))}${tr}</span>`;
+        const v = stable(z.id, a.type, a.value);
+        return `<span class="zc-v ${c}">${U.esc(SHORT[a.type] ? SHORT[a.type](v) : v)}${tr}</span>`;
       }).join("");
       const tag = ari ? '<span class="zc-tag red">ARI obligatoire</span>'
         : breathOk ? '<span class="zc-tag ok">Air respirable</span>' : "";
@@ -162,7 +184,7 @@ const ZoneCards = (() => {
     if (Live.s) onState(Live.s);
   }
 
-  return { init, summary };
+  return { init, summary, stable };
 })();
 
 (function waitLive() {

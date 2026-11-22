@@ -19,6 +19,7 @@ const SIDE_FR = { N: "par le nord", S: "par le sud", E: "par l'est", W: "par l'o
 const FROM_FR = { N: "depuis le nord", S: "depuis le sud", E: "depuis l'est", W: "depuis l'ouest" };
 const firstFr = (a) => a.replace("close the gas valve", "fermer la vanne gaz").replace("cut the power", "couper le courant");
 const WIND_DIRS = [0, 45, 90, 135, 180, 225, 270, 315];
+const WIND_NAME = ["l'est", "le sud-est", "le sud", "le sud-ouest", "l'ouest", "le nord-ouest", "le nord", "le nord-est"];
 // WIND_DIRS = angle de la flèche à l'écran (0 = vers l'est, sens horaire).
 // Contrat de la Sim : deg = direction VERS laquelle souffle le vent, 0 = nord, 90 = est.
 const windToSim = (screenDeg) => (screenDeg + 90) % 360;
@@ -39,7 +40,7 @@ function statusShape(status, cls = "") {
 
 const Panel = {
   entry: null, lastPhase: null, lastEventAt: 0, keys: {}, windIdx: 0, windBusy: 0, knownVictims: null,
-  expanded: new Set(), lookOpen: new Set(), lastAlarm: null, plansLine: null,
+  expanded: new Set(), lookOpen: new Set(), lastAlarm: null, plansLine: null, _shown: {}, lastSpeed: null,
 
   init(f) {
     this.f = f;
@@ -48,7 +49,7 @@ const Panel = {
       `<li data-p="${p}"><span class="tk"></span><span class="nm">${PHASE_FR[p]}</span><span class="tm"></span></li>`).join("");
     const kmh = document.getElementById("windKmh");
     kmh.oninput = () => { document.getElementById("windKmhTxt").textContent = kmh.value + " km/h"; this.windBusy = performance.now(); };
-    kmh.onchange = () => this.sendWind();
+    kmh.onchange = () => { this.windBusy = performance.now(); this.sendWind(); };
     document.getElementById("windDir").onclick = () => { this.windIdx = (this.windIdx + 1) % 8; this.windBusy = performance.now(); this.sendWind(); this._windArrow(); };
     // dépliage des victimes et des détails de plan (délégation : les listes sont redessinées)
     document.getElementById("victims").addEventListener("click", (ev) => {
@@ -70,7 +71,9 @@ const Panel = {
   },
 
   sendWind() {
-    Live.post("/api/wind", { kmh: +document.getElementById("windKmh").value, deg: windToSim(WIND_DIRS[this.windIdx]) });
+    const kmh = +document.getElementById("windKmh").value;
+    Live.post("/api/wind", { kmh, deg: windToSim(WIND_DIRS[this.windIdx]) },
+      { label: `Vent ${kmh} km/h vers ${WIND_NAME[this.windIdx]}` });
   },
   _windArrow() {
     document.getElementById("windDir").style.transform = `rotate(${WIND_DIRS[this.windIdx]}deg)`;
@@ -95,33 +98,38 @@ const Panel = {
     }
     if (s.phase === "ALERT" && this.lastPhase !== "ALERT") this._beep();
     this.lastPhase = s.phase;
+    if (s.speed !== this.lastSpeed) {          // vitesse de démo en cours
+      this.lastSpeed = s.speed;
+      document.querySelectorAll("[data-speed]").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.speed === s.speed)));
+    }
   },
 
   // ----------------------------------------------------------- à chaque image
+  // (rien n'est réécrit dans la page si la valeur affichée n'a pas changé)
   frame(now) {
     const s = Live.s; if (!s) return;
+    const el = this._el || (this._el = Object.fromEntries(["live", "chrono", "droneTemp", "droneBar", "droneState"]
+      .map(id => [id, document.getElementById(id)])));
+    const put = (k, v, fn) => { if (this._shown[k] !== v) { this._shown[k] = v; fn(v); } };
     const lag = (performance.now() - Live.at) / 1000;
-    const live = document.getElementById("live");
     const stale = !Live.ok || lag > 2;
-    live.classList.toggle("stale", stale);
-    live.querySelector(".txt").textContent = stale ? "Liaison interrompue" : `Liaison ${lag.toFixed(1).replace(".", ",")} s`;
-    const ch = document.getElementById("chrono");
+    put("stale", stale, v => el.live.classList.toggle("stale", v));
+    put("live", stale ? "Liaison interrompue" : `Liaison ${lag.toFixed(1).replace(".", ",")} s`, v => { el.live.querySelector(".txt").textContent = v; });
     const a = s.marks && s.marks.ALERT;
+    let chrono = "--:--";
     if (a && s.phase !== "NORMAL" && s.phase !== "FALSE_ALARM") {
       const sec = Math.max(0, Live.serverNow() - a);
-      ch.textContent = `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
-      ch.classList.add("on");
-    } else { ch.textContent = "--:--"; ch.classList.remove("on"); }
+      chrono = `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+    }
+    put("chrono", chrono, v => { el.chrono.textContent = v; el.chrono.classList.toggle("on", v !== "--:--"); });
     // drone : température, jauge, état
     const d = s.drone;
     const temp = d ? Tween.get("droneTemp", d.temp, 0.08) : null;
-    document.getElementById("droneTemp").textContent = d ? Math.round(temp) : "--";
+    put("temp", d ? String(Math.round(temp)) : "--", v => { el.droneTemp.textContent = v; });
     const pctT = d ? U.clamp((temp - 20) / 60 * 100, 0, 100) : 0;
-    document.getElementById("droneBar").style.clipPath = `inset(0 ${100 - pctT}% 0 0)`;
-    const st = document.getElementById("droneState");
+    put("bar", pctT.toFixed(1), v => { el.droneBar.style.clipPath = `inset(0 ${100 - v}% 0 0)`; });
     const stateFr = { EXPLORING: "Exploration", RETURNING: "Retour automatique", OUT: "Sorti" };
-    st.textContent = d ? stateFr[d.state] || d.state : "Au sol";
-    st.dataset.state = d ? d.state : "";
+    put("state", d ? d.state : "", v => { el.droneState.textContent = v ? stateFr[v] || v : "Au sol"; el.droneState.dataset.state = v; });
   },
 
   // frise : noms seulement ; l'heure s'affiche sous la phase en cours, au survol pour les autres
@@ -284,7 +292,7 @@ const Panel = {
       const last = (s.dialogs[v.id] || []).slice(-1)[0];
       const z = Panel._zoneOf(v.x, v.y);
       const word = v.status ? STATUS_FR[v.status] : "État inconnu";
-      const btn = (st, label) => `<button data-v="${v.id}" data-s="${st}" aria-pressed="${v.status === st}">${label}</button>`;
+      const btn = (st, label) => `<button data-v="${v.id}" data-s="${st}" data-label="${v.id} : ${label.toLowerCase()}" aria-pressed="${v.status === st}">${label}</button>`;
       return `<li class="v${isNew ? " new" : ""}">
         <button class="vrow" data-v="${v.id}" aria-expanded="${open}" aria-controls="vd-${v.id}">${Icons.ui("chevron", "chev")}${statusShape(v.status)}
           <span class="id">${v.id}</span><span class="zn">${z ? U.esc(z.name) : ""}</span>
@@ -307,7 +315,8 @@ const Panel = {
   // plans : lecture seule ; le détail du test à 3 minutes est replié par défaut
   _plans(s) {
     const p = s.plans || {};
-    const key = JSON.stringify([p, s.phase, (s.victims || []).map(v => v.status), [...this.lookOpen]]);
+    const ms = typeof Mission !== "undefined" ? Mission.get(s) : null;
+    const key = JSON.stringify([p, s.phase, (s.victims || []).map(v => v.status), [...this.lookOpen], ms && ms.sig]);
     if (this.keys.plans === key) return;
     this.keys.plans = key;
     const box = document.getElementById("plans");
@@ -323,13 +332,22 @@ const Panel = {
       `<li>${statusShape(statusOf[e.victim])}<b>${e.victim}</b><span>${e.exit ? `sortie ${e.exit}` : "aucun chemin sûr"}</span>
         ${e.rescue_first ? '<span class="prio">en premier</span>' : ""}<span class="r">${e.path && e.path.length ? `${e.path.length - 1} m` : ""}</span></li>`).join("")
       || '<li class="empty">Aucune victime trouvée</li>'}</ul></div>`;
-    h += `<div class="plan"><div class="plan-h"><i class="key entry"></i>Entrée des pompiers</div><ul>${en
-      ? `<li><span>Par <b>${en.door}</b>, ${anyFound ? "vers les victimes" : "jusqu'au feu"}</span>
-         <span class="r">${en.path && en.path.length ? `${en.path.length - 1} m` : ""}</span></li>`
-      : '<li class="empty">Aucune porte conseillée</li>'}</ul></div>`;
+    if (ms) {
+      // même numérotation que sur la carte
+      h = `<div class="plan mission"><div class="plan-h"><i class="key entry"></i>Ordre d'intervention</div><ol>${ms.steps.map(st =>
+        `<li class="ms k-${st.kind}${st.urgent ? " urgent" : ""}"><span class="ord">${st.n}</span>
+          <b>${U.esc(st.title)}</b><span class="sub">${U.esc(st.sub)}</span>
+          ${st.warn ? `<span class="warn">${U.esc(st.warn)}</span>` : ""}</li>`).join("")}</ol></div>` + h;
+    } else {
+      h += `<div class="plan"><div class="plan-h"><i class="key entry"></i>Entrée des pompiers</div><ul>${en
+        ? `<li><span>Par <b>${en.door}</b>, ${anyFound ? "vers les victimes" : "jusqu'au feu"}</span>
+           <span class="r">${en.path && en.path.length ? `${en.path.length - 1} m` : ""}</span></li>`
+        : '<li class="empty">Aucune porte conseillée</li>'}</ul></div>`;
+    }
     h += `<div class="plan"><div class="plan-h"><i class="key attack"></i>Extinction</div><ul>${ex.map(e => {
       const l = e.lookahead, open = this.lookOpen.has(e.zone);
-      return `<li class="ext"><span class="ord">${e.order}</span>
+      const n = ms ? Mission.stepOfZone(ms, e.zone) : e.order;
+      return `<li class="ext"><span class="ord"${ms ? ' title="Numéro de l’étape sur la carte"' : ""}>${n != null ? n : e.order}</span>
         <span><b>${e.zone} ${U.esc(this.zoneName[e.zone] || "")}</b>, ${U.esc(AGENT_FR[e.agent] || e.agent)} ${U.esc(SIDE_FR[e.attack_from] || e.attack_from)}</span>
         ${(e.first || []).length ? `<span class="first">D'abord : ${U.esc(e.first.map(firstFr).join(", "))}</span>` : ""}
         ${l ? `<button class="more" data-z="${e.zone}" aria-expanded="${open}">${open ? "Masquer le test" : "Voir le test à 3 min"}</button>

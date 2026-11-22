@@ -36,6 +36,26 @@ const Icons = (() => {
     chevron: '<path d="M9 6l6 6-6 6"/>',
   };
 
+  // Icônes Lucide (copie locale figée, static/vendor/lucide/) : elles remplacent les tracés
+  // ci-dessus quand elles existent. Les noms restent ceux du dashboard (#i-<nom>).
+  // "drone" n'existe pas chez Lucide : le tracé maison reste.
+  const LUCIDE_NAME = {
+    shield: "shield-plus", person: "user", plan: "clipboard-list", journal: "notebook-text",
+    fire: "flame", smoke: "cloud-fog", gas: "flask-conical", route: "route", fog: "layers-2",
+    arrow: "arrow-right", phone: "phone", check: "check", close: "x", alert: "triangle-alert",
+    thermo: "thermometer", co: "skull", o2: "wind", sensor: "radio", skip: "skip-forward",
+    reset: "rotate-ccw", factory: "factory", sun: "sun", moon: "moon", sliders: "sliders-horizontal",
+    chevron: "chevron-right",
+    // nouvelles icônes (vue 3D, comptes à rebours, équipes)
+    box: "box", map: "map", timer: "timer", users: "users", enter: "log-in", leave: "log-out",
+    scan: "scan-eye", bell: "bell", door: "door-open", zap: "zap", fuel: "fuel",
+    locate: "locate-fixed", siren: "siren", pulse: "heart-pulse", waypoints: "waypoints",
+    plus: "plus", minus: "minus", "rot-l": "rotate-ccw", "rot-r": "rotate-cw", walls: "brick-wall",
+    follow: "crosshair",
+  };
+  const LU = window.LUCIDE || {};
+  for (const [k, l] of Object.entries(LUCIDE_NAME)) if (LU[l]) UI[k] = LU[l];
+
   const TRIANGLE = '<path d="M12 2.4l10.6 18.6H1.4z" fill="#F2C12E" stroke="#16181b" stroke-width="1.4" stroke-linejoin="round"/>';
   const PICTO = {
     exit: '<rect width="24" height="24" rx="2.4" fill="#1E8F57"/>'
@@ -82,13 +102,31 @@ const Icons = (() => {
       `<svg xmlns="${NS}" viewBox="0 0 24 24" width="96" height="96">${v}</svg>`);
   })));
 
+  // Pictogrammes de la carte : SIGN_ALIAS associe les noms de la consigne aux dessins.
+  const SIGN_ALIAS = { machine: "metal", fire_hydrant: "hydrant", explosion: "gas", flammable: "solvent" };
+  const signImg = (type) => images[SIGN_ALIAS[type] || type] || null;
+
+  // Dessine un pictogramme centré en (x, y), côté `size` px. Renvoie false si l'image
+  // n'est pas encore prête (attendre Icons.ready).
+  function drawSign(ctx, type, x, y, size) {
+    const img = signImg(type);
+    if (!img) return false;
+    ctx.drawImage(img, x - size / 2, y - size / 2, size, size);
+    return true;
+  }
+
   return {
     ready,
-    img: (name) => images[name] || null,
+    img: (name) => signImg(name),
     ui: (name, cls = "") => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"></use></svg>`,
     picto: (name, cls = "") => `<svg class="pic ${cls}" aria-hidden="true"><use href="#p-${name}"></use></svg>`,
+    icon: (name, cls = "") => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"></use></svg>`,
+    drawSign,
+    signs: Object.keys(PICTO).concat(Object.keys(SIGN_ALIAS)),
   };
 })();
+const icon = Icons.icon;
+const drawSign = Icons.drawSign;
 
 // Retire un pictogramme emoji en tête d'un texte venu du serveur (risques, mesures).
 function stripEmoji(s) {

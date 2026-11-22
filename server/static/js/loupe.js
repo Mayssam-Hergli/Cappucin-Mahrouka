@@ -25,6 +25,7 @@ const Loupe = {
     this.view.resize();
     this.view.focus(zoneId, !wasOpen);   // fermée -> cadrage direct ; ouverte -> zoom animé
     if (changed) { document.getElementById("loupeReadings").innerHTML = ""; this.items.clear(); }
+    this.dirty = true;
   },
 
   close() {
@@ -47,6 +48,11 @@ const Loupe = {
     if (!this.zone || !Live.s) return;
     this.view.layers = MainMap.layers;
     this.view.draw(now);
+    // textes : 10 fois par seconde suffisent (les chiffres défilent quand même en douceur)
+    if (!this.dirty && now - (this._textAt || 0) < 100) return;
+    this._textAt = now;
+    const full = this.dirty || this._fullZone !== this.zone;
+    this.dirty = false; this._fullZone = this.zone;
     const z = (Live.s.zones || {})[this.zone];
     if (!z) return;
     const lvl = document.getElementById("loupeLvl");
@@ -76,17 +82,26 @@ const Loupe = {
       li.classList.toggle("hot", r.score >= 1);
       const v = Tween.get("loupe" + this.zone + r.type, r.value);
       li.querySelector(".val b").textContent = U.fmt(v);
-      const arrow = r.trend === "up" ? '<span class="trend-up">▲ En hausse</span>' :
-        r.trend === "down" ? '<span class="trend-down">▼ En baisse</span>' : "<span>Stable</span>";
+      const arrow = r.trend === "up" ? '<span class="trend-up">EN HAUSSE</span>' :
+        r.trend === "down" ? '<span class="trend-down">EN BAISSE</span>' : "<span>STABLE</span>";
       const src = r.src === "drone" ? "Drone" : "Capteur " + r.src;
       const age = r.age + (Live.serverNow() - Live.s.server_time);
-      li.querySelector(".meta").innerHTML = `${arrow}<span>${src}</span><span>${U.ago(age)}</span>`;
-      const tk = Theme.read(["alarm", "amber"]);
-      this._spark(li.querySelector("canvas"), r.hist || [], r.score >= 1 ? tk.alarm : tk.amber);
+      const meta = `${arrow}<span>${src}</span><span>${U.ago(age)}</span>`;
+      if (li._meta !== meta) { li._meta = meta; li.querySelector(".meta").innerHTML = meta; }
+      if (!this._tk || this._tkMode !== Theme.mode) { this._tk = Theme.read(["alarm", "amber"]); this._tkMode = Theme.mode; }
+      const col = r.score >= 1 ? this._tk.alarm : this._tk.amber, hk = JSON.stringify(r.hist || []) + col;
+      if (li._histKey !== hk) { li._histKey = hk; this._spark(li.querySelector("canvas"), r.hist || [], col); }
     }
+    if (!full) return;      // risques et fiche : seulement quand l'état change
     const risks = document.getElementById("loupeRisks");
-    const html = (z.risks || []).map(r => `<li>${U.esc(stripEmoji(r))}</li>`).join("") || '<li class="none">Aucun risque identifié.</li>';
+    const tags = z.risk_tags || [];
+    const html = (z.risks || []).map((r, i) => {
+      const t = tags[i];
+      const tag = t ? `<span class="rtag sev${Math.min(4, t.sev)}">${U.esc(t.tag)}</span>` : "";
+      return `<li class="${t ? "tagged" : ""}">${tag}<span>${U.esc(stripEmoji(r))}</span></li>`;
+    }).join("") || '<li class="none">Aucun risque identifié.</li>';
     if (risks.innerHTML !== html) risks.innerHTML = html;
+    if (typeof HazardSheet !== "undefined") HazardSheet.fill(document.getElementById("loupeSheet"), this.zone);   // fiche de danger (action.js)
   },
 
   _spark(cv, h, col) {

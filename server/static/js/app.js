@@ -15,6 +15,7 @@ let MainMap = null;
 
   // calques
   document.querySelectorAll("#layers input").forEach(i => i.onchange = () => { MainMap.layers[i.dataset.l] = i.checked; });
+  Live.on(() => { if (Loupe.zone) Loupe.dirty = true; });
 
   // survol + clic sur la carte
   const cv = document.getElementById("map");
@@ -66,18 +67,22 @@ let MainMap = null;
     if (e.key === "d" || e.key === "D") toggleDemo();
     if (e.key === "Escape") Loupe.close();
   });
-  demo.querySelectorAll("[data-demo]").forEach(b => b.onclick = () => {
+  demo.querySelectorAll("[data-demo]").forEach(b => b.onclick = async () => {
     const a = b.dataset.demo;
-    Live.post(a === "reset" ? "/api/reset" : "/api/demo/" + a);
-    if (a === "reset") { Loupe.close(); Live.revealAt.clear(); Live.burnt.clear(); MainMap.drone = null; Loupe.view.drone = null; }
+    if (a === "reset") Loupe.close();
+    const out = await Live.post(a === "reset" ? "/api/reset" : "/api/demo/" + a);
+    if (a === "reset" && out.ok) {
+      Live.revealAt.clear(); Live.burnt.clear(); MainMap.drone = null; Loupe.view.drone = null;
+      Live.refresh();
+    }
   });
-  demo.querySelectorAll("[data-speed]").forEach(b => b.onclick = () => Live.post("/api/demo/speed", { value: +b.dataset.speed }));
+  demo.querySelectorAll("[data-speed]").forEach(b => b.onclick = () => Live.post("/api/demo/speed", { value: +b.dataset.speed }, { label: `Vitesse ×${b.dataset.speed}` }));
 
   // boucle de rendu
   let lastThermal = 0;
   function frame(now) {
     try {
-      MainMap.draw(now);
+      if (!(window.View3D && window.View3D.active)) MainMap.draw(now);   // la 3D a sa propre boucle
       Loupe.draw(now);
       Panel.frame(now);
       if (now - lastThermal > 70) { Thermal.draw(now); lastThermal = now; }

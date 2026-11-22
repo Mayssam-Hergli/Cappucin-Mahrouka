@@ -292,6 +292,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
   text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--hair-2); }
 .plan .look { color: var(--tx-2); font-size: .8rem; }
 .plan .look[hidden] { display: none; }
+/* ordre d'intervention : mêmes numéros et couleurs que sur la carte */
+.plan.mission ol { list-style: none; margin: .35rem 0 0; padding: 0; font-size: .88rem; }
+.plan li.ms { display: grid; grid-template-columns: 1.4rem 1fr; gap: .05rem .55rem; padding: .3rem 0; }
+.plan li.ms .ord { grid-row: span 3; align-self: start; display: grid; place-items: center; width: 1.4rem; height: 1.4rem;
+  border-radius: 50%; color: var(--on-accent); font: 700 .82rem var(--f-cond); }
+.plan li.ms.k-rescue .ord { background: var(--entry-fill); }
+.plan li.ms.k-safety .ord { background: var(--chip-warn-bg); color: var(--chip-warn-tx); }
+.plan li.ms.k-attack .ord { background: var(--attack-fill); }
+.plan li.ms.urgent .ord { box-shadow: 0 0 0 2px var(--panel, transparent), 0 0 0 4px var(--alarm); }
+.plan li.ms .sub { color: var(--tx-2); font-size: .82rem; }
+.plan li.ms .warn { color: var(--amber-tx); font: 600 .8rem var(--f-cond); }
 
 /* journal */
 .log { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; font-size: .86rem; }

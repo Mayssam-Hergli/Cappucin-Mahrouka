@@ -386,7 +386,7 @@ const Panel = {
       ...[...names].sort().map(n => {
         const age = h[n];
         const on = age != null && age < 5;
-        const label = n.charAt(0).toUpperCase() + n.slice(1);
+        const label = U.esc(n.charAt(0).toUpperCase() + n.slice(1));
         return `<span class="${on ? "" : "off"}">${label}${age != null ? ` ${age < 60 ? age.toFixed(0) + " s" : "hors ligne"}` : ", jamais vu"}</span>`;
       })].join("");
     const el = document.getElementById("health");

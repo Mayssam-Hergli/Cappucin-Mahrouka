@@ -43,6 +43,7 @@
 "use strict";
 let F = null, step = "idle", origin = null, lastPhase = null;
 const app = document.getElementById("app");
+const esc = (v) => String(v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const post = (u, d) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d || {}) });
 
 async function init() {
@@ -72,12 +73,12 @@ async function send(btn, data) {
 function render(s) {
   if (s.phase !== lastPhase) { if (!["ALERT", "CHECKING"].includes(s.phase)) { step = "idle"; origin = null; } lastPhase = s.phase; }
   else if (step !== "idle" && ["ALERT", "CHECKING"].includes(s.phase)) return;   // ne pas effacer pendant le clic
-  const sensors = (s.sensors || []).map(x => `<span><i class="dot ${x.level}"></i>${x.id}, zone ${x.zone}</span>`).join("");
+  const sensors = (s.sensors || []).map(x => `<span><i class="dot ${esc(x.level)}"></i>${esc(x.id)}, zone ${esc(x.zone)}</span>`).join("");
   if (s.phase === "ALERT" || s.phase === "CHECKING") {
     const a = s.alarm || {};
     const zone = (F.zones || []).find(z => z.id === a.zone);
     app.innerHTML = `<div class="card call"><h1><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3.5l3 3.4-1.8 2.4c1.1 2.3 3.2 4.4 5.5 5.5l2.4-1.8 3.4 3-1.6 3.2C11.5 19.5 4.5 12.5 3.8 6.1z"/></svg>La Protection Civile vous appelle</h1>
-      <p>Alarme reçue : <b>zone ${a.zone || "?"}${zone ? ", " + zone.name : ""}</b> (${a.cause || "?"}, capteur ${a.node || "?"}).</p>
+      <p>Alarme reçue : <b>zone ${esc(a.zone || "?")}${zone ? ", " + esc(zone.name) : ""}</b> (${esc(a.cause || "?")}, capteur ${esc(a.node || "?")}).</p>
       <p>Allez vérifier ou regardez vos caméras. <b>Est-ce un vrai incendie ?</b></p>
       <div class="btns"><button class="real" id="bReal"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.5 3.1 4.6 4.6 4.6 9.3a4.6 4.6 0 0 1-9.2 0c0-2.3 1.2-3.6 2.3-4.6.2 1.7 1 2.5 1.9 2.7C10.8 7.8 11.4 5.1 12 3z"/></svg>Vrai feu</button><button class="false" id="bFalse">Fausse alarme</button></div></div>`;
     document.getElementById("bReal").onclick = () => { step = "origin"; askOrigin(a); };
@@ -97,7 +98,7 @@ function render(s) {
 function askOrigin(a) {
   app.innerHTML = `<div class="card call"><h1><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.5 3.1 4.6 4.6 4.6 9.3a4.6 4.6 0 0 1-9.2 0c0-2.3 1.2-3.6 2.3-4.6.2 1.7 1 2.5 1.9 2.7C10.8 7.8 11.4 5.1 12 3z"/></svg>Où le feu a-t-il démarré ?</h1>
     <p class="hint">Touchez l'endroit sur le plan.</p><canvas id="cv"></canvas>
-    <p id="pick" class="muted">Aucun point choisi : on utilisera la position du capteur ${a.node || ""}.</p>
+    <p id="pick" class="muted">Aucun point choisi : on utilisera la position du capteur ${esc(a.node || "")}.</p>
     <button class="ok" id="bOk">Confirmer l'incendie</button></div>`;
   const cv = document.getElementById("cv");
   const W = F.grid[0].length, H = F.grid.length, P = 16;

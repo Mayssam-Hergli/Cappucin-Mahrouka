@@ -101,9 +101,9 @@ function describeCell(x, y) {
   const eq = (f.equipment || []).find(e => e.x === x && e.y === y);
   if (eq) parts.push(`${Icons.picto(eq.type)} ${U.esc(eq.label)}`);
   const ex = (f.exits || []).find(e => e.x === x && e.y === y);
-  if (ex) parts.push(`${Icons.picto("exit")} ${ex.id}, ${U.esc(ex.name || "")}${s.phase === "EN_ROUTE" ? ". Cliquer pour y faire entrer le drone" : ""}`);
+  if (ex) parts.push(`${Icons.picto("exit")} ${U.esc(ex.id)}, ${U.esc(ex.name || "")}${s.phase === "EN_ROUTE" ? ". Cliquer pour y faire entrer le drone" : ""}`);
   const se = (s.sensors || []).find(e => e.x === x && e.y === y);
-  if (se) parts.push(`Capteur ${se.id} (${se.src === "real" ? "ESP32 réel" : "simulé"}) : ${({ NORMAL: "normal", WARNING: "pré-alerte", ALARM: "alarme" })[se.level] || se.level}, ${se.temp} °C, gaz ${se.gas}`);
+  if (se) parts.push(U.esc(`Capteur ${se.id} (${se.src === "real" ? "ESP32 réel" : "simulé"}) : ${({ NORMAL: "normal", WARNING: "pré-alerte", ALARM: "alarme" })[se.level] || se.level}, ${se.temp} °C, gaz ${se.gas}`));
   const known = !Live.fogOn() || Live.revealAt.has(k);
   if (Live.fogOn() && !known) parts.push(`<span class="muted">Pas encore vu par le drone</span>`);
   if (known) {

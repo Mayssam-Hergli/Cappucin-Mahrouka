@@ -29,13 +29,10 @@ const hhmmss = (sec) => new Date(sec * 1000).toLocaleTimeString("fr-FR", { hour:
 // forme de statut, lisible aussi en niveaux de gris
 function statusShape(status, cls = "") {
   const k = status || "unknown";
-  const d = {
-    walking: '<circle cx="8" cy="8" r="6" fill="currentColor"/>',
-    injured: '<path d="M8 1.6l6.6 12H1.4z" fill="currentColor"/>',
-    no_answer: '<circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="2.2"/>',
-    unknown: '<path d="M8 1.6L14.4 8 8 14.4 1.6 8z" fill="none" stroke="currentColor" stroke-width="2"/>',
-  }[k];
-  return `<svg class="shape ${k} ${cls}" viewBox="0 0 16 16" aria-hidden="true">${d}</svg>`;
+  // bonhomme, comme sur la carte : couché si blessé(e) ; la couleur vient de la classe (.shape.walking…)
+  const fig = '<circle cx="8" cy="3.2" r="2" fill="currentColor"/><path d="M8 5.6v5M4.6 7.6l3.4-1 3.4 1M5.6 14.6 8 10.6l2.4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>';
+  const g = k === "injured" ? `<g transform="rotate(-90 8 8)">${fig}</g>` : fig;
+  return `<svg class="shape ${k} ${cls}" viewBox="0 0 16 16" aria-hidden="true">${g}</svg>`;
 }
 
 const Panel = {
@@ -324,8 +321,8 @@ const Panel = {
     this.keys.plans = key;
     const box = document.getElementById("plans");
     const ev = p.evacuation || [], en = p.entry, ex = p.extinguish || [];
-    if (!ev.length && !en && !ex.length) {
-      box.innerHTML = '<p class="empty">Les plans apparaissent quand le drone a trouvé des victimes.</p>'; return;
+    if (s.phase !== "PLANS_READY" || (!ev.length && !en && !ex.length)) {
+      box.innerHTML = `<p class="empty">${s.phase === "DRONE_INSIDE" ? "Scan en cours : les plans s'affichent quand le drone a fini." : "Les plans s'affichent quand le drone a fini son scan."}</p>`; return;
     }
     const statusOf = Object.fromEntries((s.victims || []).map(v => [v.id, v.status]));
     const anyFound = (s.victims || []).some(v => v.found);

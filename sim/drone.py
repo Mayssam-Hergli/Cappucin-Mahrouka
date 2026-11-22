@@ -24,7 +24,8 @@ AMBIENT_TEMP = 25.0
 HEAT_GAIN = 40.0        # °C added to the target temperature per unit of radiant heat
 SMOKE_GAIN = 15.0       # °C added by dense hot smoke
 TEMP_RESPONSE = 0.15    # how fast the drone's temperature follows the target, per step
-HOVER_MAX_STEPS = 40    # 20 s of real time at one step every 0.5 s: the voice message lasts up to ~17 s
+HOVER_MAX_STEPS = 16    # 8 s at x1, used without the server; with it, the server holds the drone
+                        # in real time until the voice says the message is over (/api/voice/done)
 
 EXPLORING, RETURNING, OUT = "EXPLORING", "RETURNING", "OUT"
 
@@ -43,6 +44,7 @@ class Drone:
         self._exits = set(factory.exits.values())
         self.talking_to = None
         self._hover = 0
+        self.held = False               # set by the server while the voice is still talking
 
     def as_dict(self):
         return {"x": self.x, "y": self.y, "temp": round(self.temp, 1), "state": self.state}
@@ -67,7 +69,9 @@ class Drone:
             if self.state == EXPLORING:
                 if new:
                     self.talking_to, self._hover = new[0], 0
-                if self._still_talking(victims):
+                # stay next to the victim: while the server holds us (voice still speaking),
+                # or for HOVER_MAX_STEPS when there is no server
+                if self.held or self._still_talking(victims):
                     break
                 path = self._path_to_unexplored(hz)
                 if path is None:
@@ -82,9 +86,9 @@ class Drone:
                 if self._at_exit():
                     self.state = OUT
                     break
-        new = self.scan(victims)          # what it sees from its new position
+        new = self.scan(victims)          # what it sees from its new position: stop and talk there
         found += new
-        if new and self.state == EXPLORING:  # stop and talk here too (before, only the first scan did)
+        if new and self.state == EXPLORING:
             self.talking_to, self._hover = new[0], 0
         return found
 

@@ -350,8 +350,8 @@ class MapView {
     const layer = (name, fn) => { ctx.save(); try { fn(); } catch (e) { this._report(name, e); } finally { ctx.restore(); } };
     layer("victimes", () => this._drawVictims(ctx, s, now, v));
     layer("drone", () => this._drawDrone(ctx, s, now, v));
-    layer("ondes", () => this._drawZoneWaves(ctx, s, now, v));
-    layer("valeurs", () => { if (this.detail) this._drawDetailLabels(ctx, s, v); else this._drawZoneChips(ctx, s, v); });
+    // vue globale : les mesures sont dans la barre d'infos au-dessus de la carte, pas sur le plan
+    layer("valeurs", () => { if (this.detail) this._drawDetailLabels(ctx, s, v); });
     layer("étiquette drone", () => this._drawDroneLabel(ctx, v));
     if (this.hover && !this.detail) {
       ctx.strokeStyle = withAlpha(T["map-ink"], .8); ctx.lineWidth = 1.5 / v.s;
@@ -562,7 +562,7 @@ class MapView {
   }
 
   _drawPlans(ctx, s, v) {
-    if (!["DRONE_INSIDE", "PLANS_READY"].includes(s.phase)) return;
+    if (s.phase !== "PLANS_READY") return;   // plans seulement une fois le scan terminé (sinon ils clignotaient)
     const p = s.plans || {}, T = this.T;
     ctx.lineCap = "round"; ctx.lineJoin = "round";
     // évacuation : vert ISO, trait plein, liseré pour se détacher du feu
@@ -899,11 +899,29 @@ class MapView {
         ctx.strokeStyle = withAlpha(T["map-ink"], 0.9 * (1 - age / 1.4)); ctx.lineWidth = 2 / v.s;
         ctx.beginPath(); ctx.arc(x, y, .5 + age * 2.2, 0, 7); ctx.stroke();
       }
-      this._shape(ctx, vi.status, x, y, .5, v);
+      this._figure(ctx, vi.status, x, y, v);
       ctx.font = `700 .62px ${FONT_COND}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-      ctx.lineWidth = 3 / v.s; ctx.strokeStyle = T["map-halo"]; ctx.strokeText(vi.id, x + .7, y);
-      ctx.fillStyle = T["map-ink"]; ctx.fillText(vi.id, x + .7, y);
+      ctx.lineWidth = 3 / v.s; ctx.strokeStyle = T["map-halo"]; ctx.strokeText(vi.id, x + .95, y);
+      ctx.fillStyle = T["map-ink"]; ctx.fillText(vi.id, x + .95, y);
     }
+  }
+
+  // victime = petit bonhomme dans une pastille ; couleur = état, couchée si blessée
+  _figure(ctx, status, x, y, v) {
+    const T = this.T;
+    const col = { walking: T["evac"], injured: T["alarm"], no_answer: T["amber"] }[status] || T["map-ink"];
+    ctx.fillStyle = withAlpha(T["map-halo"], .92); ctx.strokeStyle = col; ctx.lineWidth = 2.5 / v.s;
+    ctx.beginPath(); ctx.arc(x, y, .78, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.save(); ctx.translate(x, y);
+    if (status === "injured") ctx.rotate(-Math.PI / 2);
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.lineWidth = .12;
+    ctx.beginPath(); ctx.arc(0, -.4, .15, 0, 7); ctx.fill();                        // tête
+    ctx.beginPath();
+    ctx.moveTo(0, -.22); ctx.lineTo(0, .16);                                         // corps
+    ctx.moveTo(-.28, -.08); ctx.lineTo(0, -.14); ctx.lineTo(.28, -.08);              // bras
+    ctx.moveTo(-.2, .48); ctx.lineTo(0, .16); ctx.lineTo(.2, .48);                   // jambes
+    ctx.stroke();
+    ctx.restore();
   }
 
   _drawDrone(ctx, s, now, v) {

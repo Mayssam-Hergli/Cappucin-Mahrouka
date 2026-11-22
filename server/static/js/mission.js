@@ -14,7 +14,7 @@
 "use strict";
 
 const Mission = (() => {
-  const SHOW = ["DRONE_INSIDE", "PLANS_READY"];
+  const SHOW = ["PLANS_READY"];   // ordre d'intervention seulement une fois le scan terminé
   const N8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
   const SIDE = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
   const FROM = { N: "depuis le nord", S: "depuis le sud", E: "depuis l'est", W: "depuis l'ouest" };

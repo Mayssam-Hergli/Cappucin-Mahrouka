@@ -50,7 +50,7 @@ VICTIM_WEIGHT = 1.0
 VICTIM_NEAR = 6             # cells: victims this close to a fire decide which side to attack from
 
 LOOKAHEAD_MIN = 3           # minutes simulated ahead to test each attack option
-LOOKAHEAD_EVERY = 20        # steps between two tests (10 s of real time), or sooner if the situation changes
+LOOKAHEAD_EVERY = 60        # steps between two tests (30 s of real time), or at once if the situation changes
 SUPPRESS_RATE = 0.5         # burning cells one attack team knocks down per step (0.25 m²/s)
 
 

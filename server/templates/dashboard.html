@@ -91,6 +91,13 @@
   </section>
 
   <aside class="side">
+    <!-- bilan de chaque zone après le tour du drone (zonecards.js) : première section, à la place
+         de la caméra du drone (sorti du bâtiment) ; à côté de la carte, jamais dessus -->
+    <section class="sec" id="cardZones" hidden aria-label="Bilan des zones">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-scan"></use></svg>Bilan des zones <span class="meta" id="zoneCount"></span></h3>
+      <ul class="zone-list" id="zoneList" aria-live="polite"></ul>
+    </section>
+
     <section class="decisions" id="cardAction" aria-label="Décisions">
       <h3><svg class="ic" aria-hidden="true"><use href="#i-check"></use></svg>Décisions</h3>
       <div class="act" id="actNow" aria-live="polite"></div>
@@ -174,6 +181,7 @@
 <script src="/static/js/app.js?v={{ v }}"></script>
 <script src="/static/js/countdown.js?v={{ v }}"></script>
 <script src="/static/js/action.js?v={{ v }}"></script>
+<script src="/static/js/zonecards.js?v={{ v }}"></script>
 <script type="importmap">
 { "imports": { "three": "/static/vendor/three.module.js", "three/addons/": "/static/vendor/addons/" } }
 </script>

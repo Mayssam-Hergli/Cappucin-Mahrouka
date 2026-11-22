@@ -36,6 +36,7 @@ Dans le dashboard, la touche **D** affiche le panneau démo (étape suivante, al
 | `static/js/mission.js` | Ordre d'intervention des pompiers, construit à partir des plans : sauvetages, coupures, attaques, avec itinéraires, établissements, lances et dangers sur le chemin (dessiné par `map.js`, listé par `panel.js`) |
 | `static/js/loupe.js` | Vue zoomée d'une zone en danger (équipements, valeurs placées, top 3, risques) |
 | `static/js/thermal.js` | Caméra thermique (image webcam de Teammate 1 si dispo, sinon simulée) |
+| `static/js/zonecards.js` | Bilan de chaque zone après le tour du drone, en tête de la colonne de droite (à la place de la caméra du drone, sorti) : victimes, feu (surface ou arrivée prévue), air + ARI, danger principal et geste, part vue par le drone. La plus grave en tête ; rien sur la carte. Clic = la caméra 3D va sur la zone (en 2D : fiche détaillée) |
 | `static/js/panel.js` | Frise des phases, chrono, actions, victimes, plans à valider, journal, santé |
 
 ## Brancher les vrais modules
@@ -63,7 +64,8 @@ sorties (E1 ouest, E2 sud, E3 est) et son équipement : le serveur, la Sim et le
 **Convention du vent** (contrat du README, vraie Sim et FakeSim) : `deg` est la direction **vers** laquelle
 souffle le vent, 0 = nord, 90 = est. La flèche de l'écran (0 = vers l'est) est convertie dans `panel.js`.
 
-`/api/state` renvoie aussi : `explored`, `trail`, `zones` (niveau, top 3 des mesures, risques),
+`/api/state` renvoie aussi : `explored`, `trail`, `zones` (niveau, top 3 des mesures, risques, et `air` :
+la dernière valeur de chaque mesure, même normale),
 `sensors`, `alerts`, `forecast`, `dialogs`, `decisions`, `camera`, `health`, `marks`.
 
 Routes du dashboard : `POST /api/call_factory`, `/api/wind`, `/api/victim/status`,

@@ -276,12 +276,16 @@ class Analyzer:
     def snapshot(self, now):
         zones = {}
         for zid, z in self.z.items():
-            top, _ = self._top(zid, now)
+            top, every = self._top(zid, now)
             cells = self.zone_cells[zid]
             scanned = sum(1 for c in cells if c in self.explored) / max(1, len(cells))
+            # en plus : la dernière valeur de CHAQUE mesure (même normale), pour le bilan de zone
+            # sur la carte : « air respirable » est une information autant que « CO 450 ppm »
+            air = [{k: i[k] for k in ("type", "label", "unit", "value", "score", "trend", "src", "age")}
+                   for i in every]
             zones[zid] = {"name": self.zone_name[zid], "level": z["level"],
                           "scanned": round(scanned, 2), "top": top, "risks": z["risks"],
-                          "risk_tags": z.get("risk_tags", [])}
+                          "risk_tags": z.get("risk_tags", []), "air": air}
         return {
             "explored": [list(c) for c in self.explored],
             "trail": self.trail[-200:],

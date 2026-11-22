@@ -216,6 +216,11 @@ const Panel = {
     }
     card.dataset.tone = tone;
     box.innerHTML = h;
+    // en haut tant qu'un bouton attend le commandant ; sinon ce n'est plus que l'historique,
+    // rangé en bas avec le journal (déplacé dans la page : la numérotation 01 /, 02 / suit)
+    const log = document.getElementById("cardLog");
+    if (h) { if (card.previousElementSibling && card.previousElementSibling.id !== "cardZones") card.parentNode.prepend(card); }
+    else if (log && log.previousElementSibling !== card) log.before(card);
     box.querySelectorAll("[data-exit]").forEach(b => b.onclick = () => this.pickEntry(b.dataset.exit));
     box.querySelectorAll("[data-act]").forEach(b => b.onclick = () => this._act(b.dataset.act));
   },

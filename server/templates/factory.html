@@ -4,18 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Usine — Levée de doute</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
   :root { --bg:#f4f6f9; --card:#fff; --text:#18202b; --muted:#5d6b7e; --red:#c8373c; --green:#1e8f57; --line:#dde3ea; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 "IBM Plex Sans", system-ui, -apple-system, Roboto, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums; }
   .ic { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex: none; }
   header .ic { width: 26px; height: 26px; }
   button .ic { margin-right: .35rem; }
-  h1, header b, button { font-family: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; }
+  h1, header b, button { font-family: inherit; }
   :focus-visible { outline: 3px solid #18202b; outline-offset: 2px; }
+  button:disabled { opacity: .6; cursor: wait; }
   .dot { display: inline-block; width: .6em; height: .6em; border-radius: 50%; margin-right: .35em; background: var(--green); }
   .dot.WARNING { background: #e0a526; } .dot.ALARM { background: var(--red); }
   header { padding: 14px 16px; background: #18202b; color: #fff; display: flex; gap: 10px; align-items: center; }
@@ -52,12 +50,24 @@ async function init() {
   document.getElementById("fname").textContent = F.name || "Usine";
   poll();
 }
+async function refresh() {
+  try { render(await (await fetch("/api/state", { cache: "no-store" })).json()); } catch (e) {}
+}
 async function poll() {
-  try {
-    const s = await (await fetch("/api/state", { cache: "no-store" })).json();
-    render(s);
-  } catch (e) {}
+  await refresh();
   setTimeout(poll, 700);
+}
+// onglet ou téléphone qui revient au premier plan : relire l'état tout de suite
+// (les navigateurs ralentissent fortement les pages en arrière-plan)
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+// envoi unique : bouton désactivé pendant l'envoi, puis écran mis à jour sans attendre
+async function send(btn, data) {
+  if (btn.disabled) return;
+  document.querySelectorAll("button").forEach(b => { b.disabled = true; });
+  btn.dataset.label = btn.textContent; btn.textContent = "Envoi…";
+  try { await post("/api/factory/confirm", data); } catch (e) {}
+  step = "idle";
+  await refresh();
 }
 function render(s) {
   if (s.phase !== lastPhase) { if (!["ALERT", "CHECKING"].includes(s.phase)) { step = "idle"; origin = null; } lastPhase = s.phase; }
@@ -71,7 +81,7 @@ function render(s) {
       <p>Allez vérifier ou regardez vos caméras. <b>Est-ce un vrai incendie ?</b></p>
       <div class="btns"><button class="real" id="bReal"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.5 3.1 4.6 4.6 4.6 9.3a4.6 4.6 0 0 1-9.2 0c0-2.3 1.2-3.6 2.3-4.6.2 1.7 1 2.5 1.9 2.7C10.8 7.8 11.4 5.1 12 3z"/></svg>Vrai feu</button><button class="false" id="bFalse">Fausse alarme</button></div></div>`;
     document.getElementById("bReal").onclick = () => { step = "origin"; askOrigin(a); };
-    document.getElementById("bFalse").onclick = async () => { await post("/api/factory/confirm", { real: false }); step = "idle"; };
+    document.getElementById("bFalse").onclick = (ev) => send(ev.currentTarget, { real: false });
     return;
   }
   const msg = {
@@ -111,10 +121,7 @@ function askOrigin(a) {
     document.getElementById("pick").textContent = `Départ du feu : ${z ? z.name : ""} (x ${x}, y ${y})`;
     draw();
   };
-  document.getElementById("bOk").onclick = async () => {
-    await post("/api/factory/confirm", origin ? { real: true, origin } : { real: true });
-    step = "idle";
-  };
+  document.getElementById("bOk").onclick = (ev) => send(ev.currentTarget, origin ? { real: true, origin } : { real: true });
 }
 init();
 </script>

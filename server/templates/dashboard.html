@@ -3,23 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Protection Civile — Poste de commandement</title>
-<script src="/static/js/theme.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="/static/css/app.css">
+<title>Hrika — Poste de commandement</title>
+<script src="/static/js/theme.js?v={{ v }}"></script>
+<link rel="stylesheet" href="/static/css/app.css?v={{ v }}">
+<link rel="stylesheet" href="/static/css/pro.css?v={{ v }}">
+<link rel="stylesheet" href="/static/css/hrika.css?v={{ v }}">
 </head>
 <body>
-<script src="/static/js/icons.js"></script>
+<script src="/static/vendor/lucide/lucide-subset.js"></script>
+<script src="/static/js/icons.js?v={{ v }}"></script>
 
 <header class="topbar">
   <div class="brand">
-    <svg class="brand-mark" aria-hidden="true"><use href="#i-shield"></use></svg>
-    <b>Protection Civile</b>
+    <span class="brand-name">HRIKA</span>
   </div>
   <ol class="timeline" id="stepper" aria-label="Phases de l'intervention"></ol>
   <div class="top-right">
+    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
     <div class="clock-box">
       <small>Depuis l'alarme</small>
       <div class="chrono" id="chrono" title="Temps depuis l'alarme">--:--</div>
@@ -37,8 +37,26 @@
 
 <main class="layout">
   <section class="map-wrap" id="mapWrap" aria-label="Plan d'intervention">
+    <div class="action-strip lvl-neutral" id="actionStrip" role="status" aria-live="polite"><span class="as-txt">Chargement…</span></div>
     <div class="banner" id="banner" role="status"></div>
     <canvas id="map"></canvas>
+    <div class="map3d" id="map3d" hidden title="Glisser : tourner · Clic droit : déplacer · Molette : zoom · Double-clic : s'approcher">
+      <div class="m3-tools">
+        <button class="m3-btn" id="m3Overview" type="button" title="Revenir à la vue d'ensemble (H)"><svg class="ic" aria-hidden="true"><use href="#i-locate"></use></svg>Vue d'ensemble</button>
+      </div>
+      <div class="m3-nav" role="toolbar" aria-label="Commandes de la vue 3D">
+        <button class="m3-compass" type="button" data-nav="north" title="Remettre le nord en haut (N)" aria-label="Nord en haut">
+          <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="18.5" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+            <g id="m3Needle"><path d="M20 6l4.5 14h-9z" fill="var(--alarm)"/><path d="M20 34l-4.5-14h9z" fill="currentColor" fill-opacity=".45"/>
+            <text x="20" y="5.2" text-anchor="middle" font-size="6.5" font-weight="700" fill="currentColor" dominant-baseline="hanging" transform="translate(0 -4.6)">N</text></g></svg>
+        </button>
+        <span class="m3-sep"></span>
+        <button type="button" data-nav="zin" title="Zoom avant (+)" aria-label="Zoom avant"><svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg></button>
+        <button type="button" data-nav="zout" title="Zoom arrière (-)" aria-label="Zoom arrière"><svg class="ic" aria-hidden="true"><use href="#i-minus"></use></svg></button>
+        <span class="m3-sep"></span>
+        <button type="button" data-nav="walls" aria-pressed="false" title="Murs bas : voir à l'intérieur des pièces (B)" aria-label="Murs bas"><svg class="ic" aria-hidden="true"><use href="#i-walls"></use></svg></button>
+      </div>
+    </div>
     <div class="tooltip" id="tooltip"></div>
 
     <div class="loupe" id="loupe" aria-hidden="true">
@@ -55,23 +73,16 @@
           <ul class="readings" id="loupeReadings"></ul>
           <div class="sub">Risques</div>
           <ul class="risks" id="loupeRisks"></ul>
+          <div class="sub">Fiche d'intervention</div>
+          <ul class="sheet" id="loupeSheet"></ul>
         </div>
       </div>
     </div>
 
     <div class="map-bar">
-      <div class="layers" id="layers" role="group" aria-label="Calques de la carte">
-        <label title="Feu"><input type="checkbox" data-l="fire" checked aria-label="Feu"><svg class="ic" aria-hidden="true"><use href="#i-fire"></use></svg></label>
-        <label title="Fumée"><input type="checkbox" data-l="smoke" checked aria-label="Fumée"><svg class="ic" aria-hidden="true"><use href="#i-smoke"></use></svg></label>
-        <label title="Gaz"><input type="checkbox" data-l="gas" checked aria-label="Gaz"><svg class="ic" aria-hidden="true"><use href="#i-gas"></use></svg></label>
-        <label title="Plans : évacuation, entrée, attaque"><input type="checkbox" data-l="paths" checked aria-label="Plans"><svg class="ic" aria-hidden="true"><use href="#i-route"></use></svg></label>
-        <label title="Zones pas encore vues par le drone"><input type="checkbox" data-l="fog" checked aria-label="Zones non vues"><svg class="ic" aria-hidden="true"><use href="#i-fog"></use></svg></label>
-      </div>
-      <div class="wind">
-        <span class="lab">Vent</span>
-        <input type="range" id="windKmh" min="0" max="40" step="1" value="10" aria-label="Vitesse du vent">
-        <b id="windKmhTxt">10 km/h</b>
-        <button id="windDir" type="button" title="Changer la direction du vent" aria-label="Changer la direction du vent"><svg class="ic" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
+      <div class="viewseg" role="group" aria-label="Type de vue (touche V)">
+        <button type="button" data-view="2d" aria-pressed="true" title="Plan 2D">2D</button>
+        <button type="button" data-view="3d" aria-pressed="false" title="Vue 3D (touche V)">3D</button>
       </div>
       <button class="iconbtn demo-btn" id="demoBtn" type="button" aria-expanded="false" aria-controls="demo" title="Panneau démo (touche D)" aria-label="Panneau démo"><svg class="ic" aria-hidden="true"><use href="#i-sliders"></use></svg></button>
     </div>
@@ -81,9 +92,16 @@
     <section class="decisions" id="cardAction" aria-label="Décisions">
       <h3><svg class="ic" aria-hidden="true"><use href="#i-check"></use></svg>Décisions</h3>
       <div class="act" id="actNow" aria-live="polite"></div>
-      <ol class="track" id="decisions"></ol>
+      <details class="fold" id="foldDecisions">
+        <summary>Historique <span class="fold-n" id="decCount"></span></summary>
+        <ol class="track" id="decisions"></ol>
+      </details>
     </section>
 
+    <section class="sec" id="cardCountdown" hidden aria-label="Délais critiques">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-timer"></use></svg>Délais critiques </h3>
+      <ul class="cd-list" id="countdowns" aria-live="polite"></ul>
+    </section>
     <section class="sec" id="cardDrone">
       <h3><svg class="ic" aria-hidden="true"><use href="#i-drone"></use></svg>Drone éclaireur</h3>
       <div class="cam" id="cam">
@@ -109,13 +127,16 @@
     </section>
 
     <section class="sec" id="cardPlans">
-      <h3><svg class="ic" aria-hidden="true"><use href="#i-plan"></use></svg>Plans recommandés <span class="meta">L'IA recommande, le commandant décide.</span></h3>
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-plan"></use></svg>Plans recommandés</h3>
       <div id="plans"><p class="empty">Les plans apparaissent quand le drone a trouvé des victimes.</p></div>
+      <p class="tagline"><em>L'IA recommande.</em> <em class="hl">Le commandant décide.</em></p>
     </section>
 
-    <section class="sec grow">
-      <h3><svg class="ic" aria-hidden="true"><use href="#i-journal"></use></svg>Journal</h3>
-      <ul class="log" id="log"></ul>
+    <section class="sec grow" id="cardLog">
+      <details class="fold fold-card" id="foldLog">
+        <summary><h3><svg class="ic" aria-hidden="true"><use href="#i-journal"></use></svg>Journal</h3></summary>
+        <ul class="log" id="log"></ul>
+      </details>
     </section>
 
     <section class="demo" id="demo" hidden aria-label="Panneau démo">
@@ -130,15 +151,30 @@
         <span class="speed">Vitesse <button data-speed="1">×1</button><button data-speed="2">×2</button><button data-speed="4">×4</button></span>
         <button data-demo="reset" class="danger">Réinitialiser</button>
       </div>
+      <div class="demo-row">
+        <div class="wind">
+          <span class="lab">Vent</span>
+          <input type="range" id="windKmh" min="0" max="40" step="1" value="10" aria-label="Vitesse du vent">
+          <b id="windKmhTxt">10 km/h</b>
+          <button id="windDir" type="button" title="Changer la direction du vent" aria-label="Changer la direction du vent"><svg class="ic" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
+        </div>
+      </div>
     </section>
   </aside>
 </main>
 
-<script src="/static/js/live.js"></script>
-<script src="/static/js/map.js"></script>
-<script src="/static/js/thermal.js"></script>
-<script src="/static/js/loupe.js"></script>
-<script src="/static/js/panel.js"></script>
-<script src="/static/js/app.js"></script>
+<script src="/static/js/live.js?v={{ v }}"></script>
+<script src="/static/js/mission.js?v={{ v }}"></script>
+<script src="/static/js/map.js?v={{ v }}"></script>
+<script src="/static/js/thermal.js?v={{ v }}"></script>
+<script src="/static/js/loupe.js?v={{ v }}"></script>
+<script src="/static/js/panel.js?v={{ v }}"></script>
+<script src="/static/js/app.js?v={{ v }}"></script>
+<script src="/static/js/countdown.js?v={{ v }}"></script>
+<script src="/static/js/action.js?v={{ v }}"></script>
+<script type="importmap">
+{ "imports": { "three": "/static/vendor/three.module.js", "three/addons/": "/static/vendor/addons/" } }
+</script>
+<script type="module" src="/static/js/map3d.js?v={{ v }}"></script>
 </body>
 </html>

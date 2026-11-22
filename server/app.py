@@ -27,6 +27,8 @@ from zones import Analyzer  # noqa: E402
 PHASES = ["NORMAL", "ALERT", "CHECKING", "CONFIRMED", "EN_ROUTE", "DRONE_INSIDE", "PLANS_READY"]
 RUNNING = {"CONFIRMED", "EN_ROUTE", "DRONE_INSIDE", "PLANS_READY"}
 STEP_S = 0.5
+FORECAST_S = 300       # horizon de la prévision (secondes simulées)
+FORECAST_EVERY = 30    # recalcul en EN_ROUTE et DRONE_INSIDE (secondes réelles)
 
 
 def factory_path():
@@ -81,6 +83,11 @@ class Hub:
             self.last_vision_add = 0
             self.decisions = {}
             self.forecast = []
+            self.forecast_eta = {}
+            self.forecast_t0 = None
+            self.forecast_at = 0
+            self.forecast_busy = False
+            self.forecast_gen = getattr(self, "forecast_gen", 0) + 1
             self.ignore_alarm_until = 0
             self.known_found = set()
             self.drone_state = None
@@ -102,17 +109,31 @@ class Hub:
     # --------------------------------------------------------------- boucle
     def tick(self):
         now = time.time()
+        st = None
+        sim = self.sim
+        if self.phase in RUNNING:
+            if self.sim_kind == "fake":          # FakeSim : pas de verrou à elle, et rapide
+                with self.lock:
+                    sim.step()
+                    st = sim.state()
+            else:
+                # La vraie Sim a son propre verrou. Son pas peut durer jusqu'à ~1 s (test des
+                # attaques) : on le calcule SANS bloquer le serveur, sinon /api/state et les
+                # boutons du dashboard attendent et l'écran se fige.
+                sim.step()
+                st = sim.state()
         with self.lock:
-            st = None
-            if self.phase in RUNNING:
-                self.sim.step()
-                st = self.sim.state()
+            if sim is not self.sim:              # réinitialisé pendant le calcul : résultat périmé
+                return
+            if st is not None:
                 self.last = st
             for kind, txt in self.an.update(st, now, self.real_sensors):
                 self.log(txt, kind)
             if st:
                 self._watch_victims(st)
                 self._watch_drone(st)
+            if self.phase in ("EN_ROUTE", "DRONE_INSIDE") and now - self.forecast_at > FORECAST_EVERY:
+                self.start_forecast(quiet=True)
             if self.phase == "FALSE_ALARM" and now - self.phase_at > 4:
                 self.set_phase("NORMAL", "Retour en surveillance normale.")
 
@@ -174,7 +195,8 @@ class Hub:
                 self.tick()
             except Exception:
                 traceback.print_exc()
-            time.sleep(max(0.02, STEP_S / self.speed - (time.time() - t0)))
+            # au moins 50 ms de pause : les requêtes du dashboard passent même si la Sim est lente
+            time.sleep(max(0.05, STEP_S / self.speed - (time.time() - t0)))
 
     # ---------------------------------------------------- actions (API)
     def sensor(self, d):
@@ -207,8 +229,10 @@ class Hub:
 
     def call_factory(self):
         with self.lock:
-            if self.phase == "ALERT":
-                self.set_phase("CHECKING", "Appel de l'usine pour lever le doute…")
+            if self.phase != "ALERT":
+                return False
+            self.set_phase("CHECKING", "Appel de l'usine pour lever le doute…")
+            return True
 
     def confirm(self, real, origin=None):
         with self.lock:
@@ -233,14 +257,14 @@ class Hub:
 
     def launch(self, entry):
         with self.lock:
-            if self.phase != "EN_ROUTE":
+            if self.phase != "EN_ROUTE" or entry not in {e["id"] for e in self.grid.exits}:
                 return False
             self.sim.launch_drone(entry)
             self.set_phase("DRONE_INSIDE", f"Drone lancé par la sortie {entry}. Cartographie en cours.")
             return True
 
     def skip(self):
-        """Passe à l'étape suivante du scénario (démo)."""
+        """Passe à l'étape suivante du scénario (démo). Renvoie False s'il n'y a rien à faire."""
         with self.lock:
             p = self.phase
             if p in ("NORMAL", "FALSE_ALARM"):
@@ -251,8 +275,15 @@ class Hub:
                 self.confirm(True)
             elif p == "EN_ROUTE":
                 self.launch(self.grid.exits[-1]["id"])
-            elif p == "DRONE_INSIDE" and getattr(self.sim, "drone", None):
+            elif p == "DRONE_INSIDE" and self.drone_flying():
                 self.heat_drone(to=61)
+            else:
+                return False
+            return True
+
+    def drone_flying(self):
+        d = (self.last or {}).get("drone")
+        return bool(d) and d.get("state") != "OUT"
 
     def heat_drone(self, delta=0.0, to=None):
         """Réchauffe le drone (boutons démo). Vraie Sim : sim.heat_drone() ; FakeSim : son dict."""
@@ -264,22 +295,78 @@ class Hub:
             d["temp"] = to if to is not None else d["temp"] + delta
 
     # ------------------------------------------------------------ prévision
-    def start_forecast(self):
+    def start_forecast(self, quiet=False):
+        """Prévision du feu sur une copie de la simulation (la vraie n'est pas modifiée).
+
+        Remplit self.forecast (cellules en feu à +3 min, contrat d'origine) et
+        self.forecast_eta = {"x,y": secondes simulées avant embrasement}, relatif à
+        self.forecast_t0 (temps de la Sim au moment du calcul). Recalculée toutes les
+        FORECAST_EVERY secondes en EN_ROUTE et DRONE_INSIDE (voir tick)."""
+        if self.forecast_busy:
+            return
+        self.forecast_busy = True
+        self.forecast_at = time.time()
+        gen = self.forecast_gen
+
         def run():
+            eta, fire3, t0 = {}, [], None
             try:
-                if hasattr(self.sim, "forecast"):     # vraie Sim : prévision sur une copie interne
-                    fire = self.sim.forecast(3)["fire"]
+                sim = self.sim
+                if hasattr(sim, "hazards") and hasattr(sim, "_lock"):
+                    # vraie Sim : on avance une copie des dangers pas à pas et on note
+                    # le pas où chaque cellule s'enflamme (même copie que Sim.forecast)
+                    dt = float(getattr(sys.modules.get(type(sim).__module__), "DT", 2.0))
+                    with sim._lock:
+                        hz = copy.deepcopy(sim.hazards, {id(sim.factory): sim.factory})
+                        t0 = sim.t
+                    now_burning = set(hz.burning)
+                    for i in range(int(FORECAST_S / dt)):
+                        hz.step(heat=False)
+                        for c in hz.burning:
+                            if c not in now_burning and c not in eta:
+                                eta[c] = (i + 1) * dt
+                        if not fire3 and (i + 1) * dt >= 180:
+                            fire3 = [list(c) for c in hz.burning]
                 else:                                 # FakeSim : pas de 0,5 s
                     with self.lock:
-                        s = copy.deepcopy(self.sim)
-                    for _ in range(360):          # 3 min simulées
+                        s = copy.deepcopy(sim)
+                    t0 = s.state().get("t", 0)
+                    now_burning = {tuple(c) for c in s.state().get("fire", [])}
+                    for i in range(int(FORECAST_S / 0.5)):
                         s.step()
-                    fire = s.state().get("fire", [])
-                with self.lock:
-                    self.forecast = fire
-                    self.log("Prévision du feu à +3 min calculée", "info")
-            except Exception as e:
-                print("[hub] prévision impossible :", e)
+                        if i % 4 == 3:
+                            fire = s.state().get("fire", [])
+                            for c in fire:
+                                c = tuple(c)
+                                if c not in now_burning and c not in eta:
+                                    eta[c] = (i + 1) * 0.5
+                            if not fire3 and (i + 1) * 0.5 >= 180:
+                                fire3 = [list(c) for c in fire]
+            except Exception as e:                    # copie impossible : prévision par paliers
+                print("[hub] prévision détaillée impossible :", e)
+                try:
+                    if hasattr(self.sim, "forecast"):
+                        t0 = self.sim.state().get("t", 0)
+                        now_burning = {tuple(c) for c in self.sim.state().get("fire", [])}
+                        for m in (1, 3, 5):
+                            fire = self.sim.forecast(m)["fire"]
+                            if m == 3:
+                                fire3 = fire
+                            for c in fire:
+                                c = tuple(c)
+                                if c not in now_burning and c not in eta:
+                                    eta[c] = m * 60.0
+                except Exception as e2:
+                    print("[hub] prévision impossible :", e2)
+            with self.lock:
+                self.forecast_busy = False
+                if gen != self.forecast_gen:          # reset entre-temps : résultat périmé
+                    return
+                self.forecast = fire3
+                self.forecast_eta = {f"{x},{y}": round(v, 1) for (x, y), v in eta.items()}
+                self.forecast_t0 = t0
+                if not quiet:
+                    self.log("Prévision du feu calculée (5 min, recalculée toutes les 30 s)", "info")
         threading.Thread(target=run, daemon=True).start()
 
     # ----------------------------------------------------------------- état
@@ -300,6 +387,10 @@ class Hub:
                 "camera": self.camera,
                 "decisions": self.decisions,
                 "forecast": self.forecast if self.phase == "EN_ROUTE" else [],
+                # en plus : instant d'embrasement prévu par cellule (secondes simulées après forecast_t0)
+                "forecast_eta": self.forecast_eta if self.phase in RUNNING else {},
+                "forecast_t0": self.forecast_t0,
+                "forecast_at": self.forecast_at,
                 "speed": self.speed,
                 "sim_kind": self.sim_kind,
             })
@@ -317,10 +408,26 @@ def body():
     return request.get_json(force=True, silent=True) or {}
 
 
+def refuse(msg, code=409):
+    """Action refusée : le dashboard affiche ce message sur le bouton cliqué."""
+    return jsonify(ok=False, msg=msg, phase=hub.phase), code
+
+
 # ---------------------------------------------------------------- pages
+def static_version():
+    """Numéro de version des fichiers du dashboard (date de la dernière modification) : il change
+    à chaque mise à jour, donc le navigateur ne mélange jamais anciens et nouveaux fichiers."""
+    newest = 0
+    for sub in ("js", "css"):
+        d = os.path.join(HERE, "static", sub)
+        for n in os.listdir(d):
+            newest = max(newest, os.path.getmtime(os.path.join(d, n)))
+    return str(int(newest))
+
+
 @app.get("/")
 def dashboard():
-    return render_template("dashboard.html")
+    return render_template("dashboard.html", v=static_version())
 
 
 @app.get("/factory")
@@ -351,21 +458,23 @@ def api_sensor():
 
 @app.post("/api/call_factory")
 def api_call_factory():
-    hub.call_factory()
-    return jsonify(ok=True, phase=hub.phase)
+    ok = hub.call_factory()
+    return refuse("Pas d'alarme en cours : rien à lever") if not ok else jsonify(ok=True, phase=hub.phase)
 
 
 @app.post("/api/factory/confirm")
 def api_factory_confirm():
     d = body()
     ok = hub.confirm(bool(d.get("real")), d.get("origin"))
-    return jsonify(ok=ok, phase=hub.phase), (200 if ok else 409)
+    return jsonify(ok=True, phase=hub.phase) if ok else refuse("La levée de doute n'est plus en cours")
 
 
 @app.post("/api/drone/launch")
 def api_drone_launch():
-    ok = hub.launch(body().get("entry", "E1"))
-    return jsonify(ok=ok, phase=hub.phase), (200 if ok else 409)
+    entry = body().get("entry") or "E1"
+    ok = hub.launch(entry)
+    return jsonify(ok=True, phase=hub.phase) if ok else refuse(
+        f"Porte {entry} inconnue" if hub.phase == "EN_ROUTE" else "Le drone ne peut être lancé qu'en phase « En route »")
 
 
 @app.post("/api/vision")
@@ -382,7 +491,7 @@ def api_vision():
             hub.last_vision_add = now
             vid = hub.sim.add_victim_here(float(d.get("conf", 0)))
             hub.log(f"IA thermique : personne détectée (confiance {float(d.get('conf', 0)):.0%})"
-                    + (f" → {vid}" if vid else ""), "victim")
+                    + (f" : {vid}" if vid else ""), "victim")
     return jsonify(ok=True)
 
 
@@ -412,10 +521,14 @@ def api_voice():
 @app.post("/api/wind")
 def api_wind():
     d = body()
+    try:
+        kmh, deg = float(d.get("kmh", 10)), float(d.get("deg", 0)) % 360
+    except (TypeError, ValueError):
+        return refuse("Vent invalide", 400)
     with hub.lock:
-        hub.sim.set_wind(float(d.get("kmh", 10)), float(d.get("deg", 0)))
+        hub.sim.set_wind(kmh, deg)
         if hub.last:
-            hub.last["wind"] = {"kmh": float(d.get("kmh", 10)), "deg": float(d.get("deg", 0))}
+            hub.last["wind"] = {"kmh": kmh, "deg": deg}
     return jsonify(ok=True)
 
 
@@ -423,8 +536,13 @@ def api_wind():
 def api_victim_status():
     """Le commandant corrige à la main l'état d'une victime."""
     d = body()
+    if d.get("status") not in ("walking", "injured", "no_answer"):
+        return refuse("État de victime inconnu", 400)
     with hub.lock:
-        hub.sim.set_victim_status(d.get("victim"), d.get("status"))
+        try:
+            hub.sim.set_victim_status(d.get("victim"), d.get("status"))
+        except Exception:
+            return refuse(f"Victime {d.get('victim')} inconnue", 400)
         hub.log(f"Commandant : {d.get('victim')} marqué(e) « {d.get('status')} »", "decision")
     return jsonify(ok=True)
 
@@ -453,18 +571,32 @@ def api_demo(action):
     d = body()
     with hub.lock:
         if action == "speed":
-            hub.speed = max(0.5, min(8.0, float(d.get("value", 1))))
+            try:
+                hub.speed = max(0.5, min(8.0, float(d.get("value", 1))))
+            except (TypeError, ValueError):
+                return refuse("Vitesse invalide", 400)
             hub.log(f"Vitesse de simulation ×{hub.speed:g}", "info")
         elif action == "alarm":
+            if hub.phase not in ("NORMAL", "FALSE_ALARM"):
+                return refuse("Une intervention est déjà en cours")
             hub.fake_alarm()
-        elif action == "heat" and getattr(hub.sim, "drone", None):
+        elif action == "heat":
+            if not hub.drone_flying():
+                return refuse("Aucun drone en vol")
             hub.heat_drone(12)
         elif action == "victim":
+            if not hub.drone_flying():
+                return refuse("Aucun drone en vol")
             vid = hub.sim.add_victim_here(0.9)
-            hub.log(f"(démo) personne ajoutée à la position du drone → {vid}", "info")
+            if not vid:
+                return refuse("Une victime est déjà connue à cet endroit")
+            hub.log(f"(démo) personne ajoutée à la position du drone : {vid}", "info")
         elif action == "skip":
-            hub.skip()
-    return jsonify(ok=True, phase=hub.phase)
+            if not hub.skip():
+                return refuse("Pas d'étape suivante dans cette phase")
+        else:
+            return refuse(f"Action inconnue : {action}", 404)
+    return jsonify(ok=True, phase=hub.phase, speed=hub.speed)
 
 
 if __name__ == "__main__":

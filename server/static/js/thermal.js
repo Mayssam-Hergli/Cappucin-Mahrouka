@@ -64,20 +64,27 @@ const Thermal = {
         this.img.dataset.at = String(cam.at);
       }
       this.img.style.display = "block";
+      this._idleKey = null;
       this.frameEl.classList.remove("nosig");
       this._setTag(cam.person ? `Personne détectée, ${Math.round((cam.conf || 0) * 100)} %` : "Caméra du drone en direct");
       this.hudT.textContent = d ? `${Math.round(d.temp)} °C` : "";
       this.pos.textContent = d ? `X ${d.x}  Y ${d.y}` : "";
       return;
     }
-    this.img.style.display = "none";
+    if (this.img.style.display !== "none") this.img.style.display = "none";
     if (!d || d.state === "OUT") {
+      // écran d'attente fixe : dessiné une seule fois
+      const ik = d ? "out" : "ground";
+      if (this._idleKey === ik) return;
+      this._idleKey = ik;
       this.frameEl.classList.add("nosig");
       if (d) this._idle("Drone sorti du bâtiment", "Flux interrompu");
       else this._idle("Drone au sol", "Le flux s'affiche au lancement");
       this._setTag("Caméra thermique simulée");
+      this.hudT.textContent = ""; this.pos.textContent = "";
       return;
     }
+    this._idleKey = null;
     this.frameEl.classList.remove("nosig");
     // vue 10 m x 7,5 m centrée sur le drone, 4 pixels par mètre
     const t = now / 1000;

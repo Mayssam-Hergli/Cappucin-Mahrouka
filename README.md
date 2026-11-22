@@ -16,13 +16,14 @@ Built for the Tunisian Aeroday hackathon, *Protection Civile* challenge: use aer
 4. [System architecture](#system-architecture)
 5. [Repository layout](#repository-layout)
 6. [Getting started](#getting-started)
-7. [Shared contract](#shared-contract)
-8. [The simulation](#the-simulation)
-9. [The AI model](#the-ai-model)
-10. [Prototype vs. real product](#prototype-vs-real-product)
-11. [Hardware](#hardware)
-12. [Safety and limits](#safety-and-limits)
-13. [License and credits](#license-and-credits)
+7. [The dashboard](#the-dashboard)
+8. [Shared contract](#shared-contract)
+9. [The simulation](#the-simulation)
+10. [The AI model](#the-ai-model)
+11. [Prototype vs. real product](#prototype-vs-real-product)
+12. [Hardware](#hardware)
+13. [Safety and limits](#safety-and-limits)
+14. [License and credits](#license-and-credits)
 
 ---
 
@@ -42,6 +43,7 @@ When a factory burns, firefighters arrive without knowing what is inside, who is
   - **Evacuation**: the safest route out for each victim, with injured or silent victims flagged *rescue first*.
   - **Entry**: the best door for the firefighters to go in and reach the victims safely.
   - **Extinguishing**: where to start, from which side, and with what (water, foam, CO₂ or powder), plus whether to close the gas valve or cut the power first.
+- **A command dashboard in 2D or 3D.** One sentence tells the commander what to do now, countdowns show when the fire will reach the gas bottles, the solvents or a victim, and each zone has a hazard sheet (how to attack it safely, nearest hydrant and exit).
 
 **The aeronautics link:** drones, aerial mapping and thermal imaging.
 
@@ -96,7 +98,7 @@ flowchart LR
 |---|---|---|---|
 | Sensor node | `iot/` | Arduino C++ (ESP32) | `POST /api/sensor` every second |
 | Factory page | `server/` | HTML + JS | `POST /api/factory/confirm` |
-| Dashboard | `server/` | HTML + canvas + JS | `GET /api/state`, `POST /api/drone/launch` |
+| Dashboard | `server/` | HTML, JS, canvas (2D map), Three.js (3D view) | `GET /api/state`, `POST /api/drone/launch` and the dashboard routes |
 | Server and phase machine | `server/` | Python, Flask | n/a (it is the hub) |
 | Simulation and plans | `sim/` | Python | imported directly by the server |
 | Vision | `vision/` | Python, OpenCV, YOLOv8 | `POST /api/vision` |
@@ -114,6 +116,7 @@ flowchart LR
 ├── server/    Flask server, Protection Civile dashboard, factory page, fake sensor
 ├── iot/       ESP32 sensor node firmware
 ├── docs/      Reports, empathy map, slides, video
+├── context/   Challenge brief, project plan, hardware handover notes
 ├── requirements.txt
 └── README.md
 ```
@@ -147,13 +150,16 @@ Replace `SERVER_IP` with the IP address of the laptop that runs the server.
 # 1. The hub (opens the dashboard at http://SERVER_IP:5000 and the factory page at /factory)
 python server/app.py
 
-# 2. A sensor alarm, either from the real ESP32 (see iot/) or from the fake sensor:
-python server/fake_sensor.py --server http://SERVER_IP:5000
+# 2. A sensor alarm, either from the real ESP32 (see iot/) or from the fake sensor
+#    (press Enter in its terminal to start the fire, Ctrl+C to stop it):
+python server/fake_sensor.py --server http://SERVER_IP:5000 --node N1
 
 # 3. The drone's camera and voice, on any laptop on the network:
 python vision/fake_thermal.py --server http://SERVER_IP:5000
 python voice/voice.py --server http://SERVER_IP:5000
 ```
+
+No hardware at hand? In the dashboard, press **D** to open the demo panel: simulated alarm, next step, speed ×1 / ×2 / ×4, reset. Stop the server with **Ctrl+C** before starting it again: two servers on the same port answer in turn and the screen seems to lag.
 
 ### Run the simulation alone (no server)
 
@@ -164,6 +170,22 @@ python -m sim.viewer --save run.png --steps 20 60 100 130     # snapshots side b
 ```
 
 This plays the whole scenario: the fire, smoke and gas spread, the drone is launched after a short forecast, explores, finds and speaks to victims, and the three plans are drawn on the map. Add `--answers` to simulate the commander marking who can walk.
+
+## The dashboard
+
+`http://SERVER_IP:5000/` is the Protection Civile command post; `http://SERVER_IP:5000/factory` is the factory's page (on a phone). Everything the pages need (Three.js, icons, fonts) is served from `server/static/vendor/`, so the demo works on a hotspot without Internet.
+
+| Feature | What the commander sees |
+|---|---|
+| 2D map (default) | Zones, stock, fire, smoke, gas, unexplored areas, drone, victims and the three plans, with ISO-style safety signs |
+| 3D view | Button **2D / 3D**, key **V**, or `/#3d` in the address. Burning stock, smoke drifting with the wind, the drone and its camera cone, victims with a light beam, plans as ribbons on the floor. Toolbar: compass, zoom, top view (**T**), low walls to see inside the rooms (**B**); keys **Q / E** rotate, **F** follows the drone. It lowers its quality by itself on a slow PC |
+| Fire forecast | Ghost flames where the fire will be in 1, 3 or 5 minutes if nothing is done (selector "Feu prévu dans") |
+| Immediate action | One sentence above the map, readable from 3 m, e.g. "Entrer par E3 (Est) — 2 victimes en Z4, dont 1 blessée — risque d'explosion Z4 dans ~4 min" |
+| Critical countdowns | Time before the fire reaches the gas bottles, solvents, electrical cabinets, exits or a victim, and before the drone reaches 60 °C. Click a line to go there |
+| Zone loupe and hazard sheet | Click a zone: top 3 readings, risks tagged EXPLOSION / TOXIQUE / ARI..., and how to attack it (foam for solvents, cut the power first, gas valve to close, nearest hydrant and exit) |
+| Demo panel | Key **D** |
+
+Details for developers: [`server/DASHBOARD.md`](server/DASHBOARD.md).
 
 ## Shared contract
 
@@ -181,6 +203,22 @@ Every part depends on this contract. **Do not change it without telling the whol
 | `POST` | `/api/voice` | Optional: a voice script that listens (the current one only speaks) | `{victim, heard, status: walking\|injured\|no_answer}` |
 | `POST` | `/api/victim/status` | Dashboard: the commander sets a victim's state | `{victim, status: walking\|injured\|no_answer}` |
 | `GET` | `/api/state` | Dashboard (polls every 500 ms) | the full state, below |
+
+Every `POST` sends a JSON body with the header `Content-Type: application/json`; anything else is refused with `415`.
+
+Routes used by the dashboard and the demo tools (they change nothing above):
+
+| Method | Route | Use |
+|---|---|---|
+| `GET` | `/api/factory` | The map to draw (grid, zones, exits, equipment...) |
+| `POST` | `/api/call_factory` | The commander calls the factory (`ALERT` → `CHECKING`) |
+| `POST` | `/api/voice/done` | The voice script finished a message: `{victim}` |
+| `POST` | `/api/wind` | Wind slider: `{kmh, deg}` |
+| `POST` | `/api/plan/decide` | The commander accepts or rejects a plan: `{plan: evacuation\|entry\|extinguish, decision: accepted\|rejected}` |
+| `POST` | `/api/reset` | Back to `NORMAL` |
+| `POST` | `/api/demo/<skip\|alarm\|heat\|victim\|speed>` | Demo panel |
+
+**Signed sensor messages.** The body of `POST /api/sensor` does not change; the node adds three headers: `X-Hrika-Time` (Unix time), `X-Hrika-Seq` (message counter) and `X-Hrika-Sig` = hex HMAC-SHA256 of `"<time>.<seq>.<raw body>"` with the node's key. The server refuses a wrong signature, a message older than 30 s, or a replay. Keys live in `server/keys/nodes.json` (never committed); without that file, unsigned messages are accepted (development mode). `python server/security.py new-key N1` creates a key and prints the node's `secrets.h`. `SENSOR_AUTH=off` turns the check off as a last resort on demo day.
 
 Example sensor payload:
 
@@ -216,9 +254,11 @@ NORMAL → ALERT → CHECKING → CONFIRMED (or FALSE_ALARM → NORMAL) → EN_R
                                   "fire_near_victims": {"no_action": 5, "with_attack": 0},
                                   "fire_m2": {"no_action": 10, "with_attack": 0}}}]
   },
-  "events": ["12:03 ALARM zone Z2 (gas)", "..."]
+  "events": [{"t": "12:03:41", "at": 1795289021.4, "text": "ALARME zone Z2 (gas) — capteur N1", "kind": "danger"}]
 }
 ```
+
+The server adds more keys for the dashboard (additions only): `alarm`, `marks` (time of each phase), `zones` (level, top 3 readings, `risks` and `risk_tags`), `sensors`, `alerts`, `explored`, `trail`, `dialogs`, `decisions`, `camera`, `health`, `speed`, and the fire forecast: `forecast` (burning cells in 3 minutes, during `EN_ROUTE`), `forecast_eta` (`{"x,y": simulated seconds before that cell ignites}`), `forecast_t0` (the simulated time `t` when it was computed) and `forecast_at`. The forecast runs on a copy of the simulation and is recomputed every 30 s during `EN_ROUTE` and `DRONE_INSIDE`.
 
 ### Simulation interface (`sim/`)
 
@@ -280,7 +320,7 @@ A 40 × 25 m fictional factory, written as text rows (1 character = 1 cell = 1 m
 | `G` | gas bottles | C |
 | `X` | electrical cabinet | electrical |
 
-Beside the rows, the file holds `zones` (name and rectangle), `sensors` (`id`, `zone`, `x`, `y`), `victims` (hidden positions for the scenario) and `hydrants`.
+Beside the rows, the file holds `zones` (name and rectangle), `exits` (`id`, side, name), `sensors` (`id`, `zone`, `x`, `y`), `victims` (hidden positions for the scenario), `hydrants`, `gas_valves`, `power_cutoffs`, `equipment` (machines, cabinets, extinguishers... with a label) and `demo` (the demo wind).
 
 ## The simulation
 
@@ -375,6 +415,7 @@ The node decides `NORMAL` / `WARNING` / `ALARM` from thresholds **and the rate o
 - MQ gas sensors need **20+ minutes of warm-up** before their readings mean anything.
 - The drone and its thermal camera are simulated in this prototype. The fire model is simplified and not calibrated on real fire data yet.
 - Every plan is a **recommendation**. The commander makes the decision.
+- Sensor messages are signed (HMAC-SHA256) and every input is checked by the server, so a device on the hotspot cannot fake an alarm.
 
 ## License and credits
 

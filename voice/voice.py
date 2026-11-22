@@ -150,7 +150,11 @@ def run(server, speaker):
 
         if job.get("say"):
             print(f"Victim {job.get('victim', '?')}:")
-            speaker.say(job["say"])
+            speaker.say(job["say"])          # returns when the message has been spoken
+            try:   # tell the server the message is over: the drone may move on
+                requests.post(server.rstrip("/") + "/api/voice/done", json={"victim": job.get("victim")}, timeout=2)
+            except requests.RequestException:
+                pass
         else:
             time.sleep(1)
 

@@ -39,7 +39,7 @@ const Loupe = {
     for (const a of s.alerts || []) {
       if (a.id > Live.seenAlert) {
         Live.seenAlert = a.id;
-        if (Live.serverNow() - a.at < 10) this.open(a.zone);
+        // plus d'ouverture automatique : l'alerte s'affiche dans la barre d'infos en haut de la carte
       }
     }
   },

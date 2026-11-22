@@ -3,7 +3,7 @@
 - Fire is a cellular automaton. A burning cell can ignite its neighbours, with a
   probability that depends on the material and the wind. Walls block it, doors
   slow it, and stored goods can also ignite across an aisle by radiant heat.
-  Cells burn out after a time that depends on the material.
+  Stored goods burn until they are put out; debris on the floor burns out quickly.
 - Smoke and gas are density fields (0..1) that diffuse through open cells and
   vent out of the exits. Smoke is produced by every burning cell and spreads
   faster than fire. Gas leaks from gas bottles that are burning or next to a fire.
@@ -15,14 +15,19 @@ import math
 
 from .grid import DOOR, FLOOR, FUEL, GAS, PAPER, ELEC, EXIT, N4, N8, STOCK, WALL
 
+# Stored goods burn until firefighters put them out: a warehouse fire lasts hours, far
+# longer than the demo. They used to burn out after a few minutes, so the fire vanished
+# on its own on the dashboard with no one acting on it, which made no sense.
+UNTIL_EXTINGUISHED = 10 ** 9
+
 # material: (ignition probability per step from one burning neighbour, burn time in steps)
 MATERIALS = {
-    FLOOR: (0.015, 6),      # bare concrete: only debris burns, briefly
-    DOOR:  (0.03, 40),      # fire door: slows the fire
-    PAPER: (0.30, 450),
-    FUEL:  (0.55, 300),
-    GAS:   (0.50, 120),
-    ELEC:  (0.20, 200),
+    FLOOR: (0.015, 6),                      # bare concrete: only debris burns, briefly
+    DOOR:  (0.03, 300),                     # fire door: slows the fire, holds about 10 min
+    PAPER: (0.30, UNTIL_EXTINGUISHED),
+    FUEL:  (0.55, UNTIL_EXTINGUISHED),
+    GAS:   (0.50, UNTIL_EXTINGUISHED),
+    ELEC:  (0.20, UNTIL_EXTINGUISHED),
 }
 
 DIAGONAL_FACTOR = 0.7       # diagonal neighbours are further away

@@ -32,6 +32,7 @@ from .grid import DOOR, Factory, WALL
 from .hazards import GAS_THRESHOLD, SMOKE_THRESHOLD, Hazards
 
 DT = 2.0                    # simulated seconds per step (demo-accelerated: 1 step every 0.5 s)
+PLAN_EVERY = 6              # steps between two plan updates (3 s real time), or at once if the situation changes
 VICTIM_STATUSES = {"walking", "injured", "no_answer"}
 
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -66,6 +67,9 @@ class Sim:
         self._tested = {}               # latest result of plans.test_attacks()
         self._tested_key = None
         self._steps_since_test = 0
+        self._plan_key = None
+        self._testing = False           # an attack test is running in the background
+        self._steps_since_plan = 0
         self._lock = threading.RLock()
 
     # --- contract interface --------------------------------------------------
@@ -88,7 +92,9 @@ class Sim:
             if entry not in self.factory.exits:
                 raise ValueError(f"unknown exit {entry!r}, expected one of {sorted(self.factory.exits)}")
             self.drone = Drone(self.factory, entry, self.return_temp)
-            self.drone.scan(self.victims)
+            new = self.drone.scan(self.victims)
+            if new:                          # a victim visible from the door: talk to them first
+                self.drone.talking_to, self.drone._hover = new[0], 0
 
     def step(self):
         """Advance DT simulated seconds. Returns the ids of the victims found during this step."""
@@ -98,18 +104,36 @@ class Sim:
                 self.hazards.step()
             if self.drone is not None:
                 found = self.drone.step(self.hazards, self.victims)
+            # Plans cost ~0.15 s each (path costs over the whole map). Computing them at every
+            # step (2 per second) kept a CPU core busy for as long as the fire burned, and the
+            # dashboard lagged. The fire moves slowly: every PLAN_EVERY steps is enough, and at
+            # once when a victim is found, answers, or the wind changes.
             if self.fire_started:
-                self.plans = plans.compute(self.factory, self.hazards, self.victims, self._tested)
+                key = (tuple((v["id"], v["status"]) for v in self.victims if v["found"]),
+                       self.hazards.wind_kmh, self.hazards.wind_deg)
+                self._steps_since_plan += 1
+                if key != self._plan_key or self._steps_since_plan >= PLAN_EVERY:
+                    self._plan_key = key
+                    self._steps_since_plan = 0
+                    self.plans = plans.compute(self.factory, self.hazards, self.victims, self._tested)
             self.t += DT
-            job = self._lookahead_job()
+            job = None if self._testing else self._lookahead_job()   # one test at a time
 
-        if job is not None:
-            # Test the attack options on copies, outside the lock: state() stays responsive.
+        if job is not None and not self._testing:
+            # Test the attack options on copies, in a background thread: the test takes ~1 s,
+            # and running it inside step() froze the simulation (the drone stopped, then jumped).
+            self._testing = True
+            threading.Thread(target=self._run_test, args=(job,), daemon=True).start()
+        return found
+
+    def _run_test(self, job):
+        try:
             tested = plans.test_attacks(self.factory, *job, DT)
             with self._lock:
                 self._tested = tested
                 self.plans = plans.compute(self.factory, self.hazards, self.victims, self._tested)
-        return found
+        finally:
+            self._testing = False
 
     def add_victim_here(self, conf):
         """The webcam saw a person at the drone's position.
@@ -219,6 +243,12 @@ class Sim:
                 "doors": doors,
                 "say": f"{hello} {middle}",   # the drone only speaks, it does not ask anything
             }
+
+    def hold_drone(self, on):
+        """The server keeps the drone next to a victim while the voice message plays."""
+        with self._lock:
+            if self.drone is not None:
+                self.drone.held = bool(on)
 
     def heat_drone(self, delta):
         """Add `delta` °C to the drone (the dashboard's demo buttons). If that reaches

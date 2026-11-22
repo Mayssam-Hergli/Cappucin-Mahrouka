@@ -43,6 +43,7 @@ class Drone:
         self._exits = set(factory.exits.values())
         self.talking_to = None
         self._hover = 0
+        self.held = False               # set by the server while the voice is still talking
 
     def as_dict(self):
         return {"x": self.x, "y": self.y, "temp": round(self.temp, 1), "state": self.state}
@@ -67,7 +68,9 @@ class Drone:
             if self.state == EXPLORING:
                 if new:
                     self.talking_to, self._hover = new[0], 0
-                if self._still_talking(victims):
+                # stay next to the victim: while the server holds us (voice still speaking),
+                # or for HOVER_MAX_STEPS when there is no server
+                if self.held or self._still_talking(victims):
                     break
                 path = self._path_to_unexplored(hz)
                 if path is None:
@@ -82,7 +85,10 @@ class Drone:
                 if self._at_exit():
                     self.state = OUT
                     break
-        found += self.scan(victims)
+        new = self.scan(victims)          # what it sees from its new position: stop and talk there
+        found += new
+        if new and self.state == EXPLORING:
+            self.talking_to, self._hover = new[0], 0
         return found
 
     def add_heat(self, delta):

@@ -60,6 +60,10 @@ def run(server, voice_id):
         if job.get("say"):
             print(f"Victim {job.get('victim', '?')}:")
             speak(job["say"], voice_id)
+            try:   # tell the server the message is over: the drone may move on
+                requests.post(server.rstrip("/") + "/api/voice/done", json={"victim": job.get("victim")}, timeout=2)
+            except requests.RequestException:
+                pass
         else:
             time.sleep(1)
 

@@ -693,7 +693,7 @@ class View3DImpl {
     }
 
     // plans : rubans au sol avec chevrons qui défilent
-    const showPlans = L.paths && ["DRONE_INSIDE", "PLANS_READY"].includes(s.phase);
+    const showPlans = L.paths && s.phase === "PLANS_READY";   // seulement une fois le scan terminé
     this.planGroup.visible = showPlans;
     const ms = typeof Mission !== "undefined" ? Mission.get(s) : null;
     if (key("plans", () => [s.plans, Lv.fireNow.size, ms && ms.sig])) {
@@ -784,8 +784,20 @@ class View3DImpl {
         if (v) { this.victimGroup.remove(v.grp); this._dispose(v.grp); }
         const c = col(T[tok]);
         const grp = new THREE.Group();
-        const disc = new THREE.Mesh(new THREE.CircleGeometry(0.42, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: c }));
-        disc.position.y = 0.05;
+        // figurine : corps + tête, debout ; couchée au sol si la victime est blessée
+        const figMat = new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, emissive: c, emissiveIntensity: 0.35 });
+        const disc = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.5, 4, 12), figMat);
+        body.position.y = 0.42;
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), figMat);
+        head.position.y = 0.98;
+        disc.add(body, head);
+        disc.scale.setScalar(1.4);                       // lisible en vue d'ensemble
+        if (vi.status === "injured") { disc.rotation.z = Math.PI / 2; disc.position.set(0.75, 0.25, 0); }
+        const base = new THREE.Mesh(new THREE.CircleGeometry(0.45, 32).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({ color: col(T["map-halo"]), transparent: true, opacity: 0.85, depthWrite: false }));
+        base.position.y = 0.04;
+        grp.add(base);
         const pulse = new THREE.Mesh(new THREE.RingGeometry(0.46, 0.58, 40).rotateX(-Math.PI / 2),
           new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.8, depthWrite: false }));
         pulse.position.y = 0.06;
@@ -794,9 +806,9 @@ class View3DImpl {
         beam.position.y = 3.5;
         const fg = tok === "map-ink" ? T["map-halo"] : "#ffffff";
         const lab = label(vi.id, T[tok], fg, 0.6);
-        lab.position.y = 1.5;
+        lab.position.y = 2.0;
         grp.add(disc, pulse, beam, lab);
-        for (const o of [disc, beam, lab]) o.userData.victim = vi.id;
+        for (const o of [disc, body, head, beam, lab]) o.userData.victim = vi.id;
         this.victimGroup.add(grp);
         v = { grp, pulse, tok, born: v ? v.born : now };
         this.victims.set(vi.id, v);
@@ -1114,7 +1126,9 @@ const View3D = window.View3D = {
   if (ov) ov.onclick = () => View3D.overview();
   document.querySelectorAll("[data-nav]").forEach((b) => { b.onclick = () => View3D.nav(b.dataset.nav); });
   document.querySelectorAll("[data-ghost]").forEach((b) => { b.onclick = () => View3D.setGhost(+b.dataset.ghost); });
-  new ResizeObserver(() => { if (View3D.active) { View3D.place(); View3D.impl.resize(); } }).observe(document.getElementById("mapWrap"));
+  // la 3D se cale sur le plan 2D : on suit aussi le plan, qui rétrécit quand la barre d'infos apparaît
+  const ro = new ResizeObserver(() => { if (View3D.active) { View3D.place(); View3D.impl.resize(); } });
+  ro.observe(document.getElementById("mapWrap")); ro.observe(document.getElementById("map"));
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
     if (e.key === "v" || e.key === "V") { View3D.show(!View3D.active); return; }

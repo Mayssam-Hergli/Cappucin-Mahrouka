@@ -21,7 +21,8 @@ from geo import Grid, N4
 
 # probabilité d'allumer un voisin par pas (0,5 s) et durée de combustion (pas)
 IGNITE = {"F": 0.20, "G": 0.25, "P": 0.12, "X": 0.08, ".": 0.016, "D": 0.025, "E": 0.005}
-BURN = {"F": 500, "G": 260, "P": 600, "X": 400, ".": 320, "D": 260, "E": 60}
+# les marchandises brûlent jusqu'à l'extinction (comme la vraie Sim) ; sol et portes s'éteignent seuls
+BURN = {"F": 10**9, "G": 10**9, "P": 10**9, "X": 10**9, ".": 320, "D": 260, "E": 60}
 FIRE_CLASS = {"P": "A", "F": "B", "G": "C", "X": "E", ".": "A", "D": "A", "E": "A"}
 AGENT = {"A": "eau", "B": "mousse", "C": "poudre", "E": "CO2"}
 

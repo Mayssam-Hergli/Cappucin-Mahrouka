@@ -81,6 +81,8 @@ class Hub:
             self.dialogs = {}
             self.camera = None
             self.last_vision_add = 0
+            self.talk_until = {}       # victime -> heure (réelle) jusqu'à laquelle le drone reste près d'elle
+            self.vision_found = {}     # victime -> confiance, quand c'est la vraie caméra (IA) qui l'a vue
             self.decisions = {}
             self.forecast = []
             self.forecast_eta = {}
@@ -112,6 +114,10 @@ class Hub:
         st = None
         sim = self.sim
         if self.phase in RUNNING:
+            # le drone reste près de la victime tant que la voix lui parle (temps réel, pas en pas
+            # de simulation : sinon à vitesse x4 il repartait avant la fin du message)
+            if hasattr(sim, "hold_drone"):
+                sim.hold_drone(any(t > now for t in self.talk_until.values()))
             if self.sim_kind == "fake":          # FakeSim : pas de verrou à elle, et rapide
                 with self.lock:
                     sim.step()
@@ -142,12 +148,25 @@ class Hub:
             if v.get("found") and v["id"] not in self.known_found:
                 self.known_found.add(v["id"])
                 z = self.grid.zone_of(v["x"], v["y"])
-                self.log(f"Victime {v['id']} détectée par caméra thermique ({z}, x={v['x']} y={v['y']})",
-                         "victim")
+                conf = self.vision_found.get(v["id"])
+                if conf is not None:
+                    self.log(f"Victime {v['id']} détectée par la caméra (IA, confiance {conf:.0%}) en {z}", "victim")
+                else:
+                    self.log(f"Victime {v['id']} repérée par le drone (simulation) en {z}", "victim")
                 say = self._message_for(v, st)
                 self.voice_queue.append({"victim": v["id"], "say": say})
+                self._hold_for(v["id"], say)
                 self.dialogs.setdefault(v["id"], []).append({"who": "drone", "text": say,
                                                              "t": time.strftime("%H:%M:%S")})
+
+    def _hold_for(self, vid, say):
+        """Garde le drone près de la victime pendant son message. La voix dit « fini »
+        (/api/voice/done) ; sans elle, une durée estimée sert de filet."""
+        now = time.time()
+        voice_on = now - self.health.get("voix", 0) < 5
+        talk = len(say.split()) * 60 / 160 + 3 if voice_on else 6     # 160 mots/min + prise en charge
+        start = max([now] + [t for t in self.talk_until.values() if t > now])  # après les messages en attente
+        self.talk_until[vid] = start + talk
 
     def _message_for(self, v, st):
         if hasattr(self.sim, "guidance"):        # vraie Sim : sortie la plus sûre, distance, portes
@@ -489,9 +508,10 @@ def api_vision():
         if (hub.phase == "DRONE_INSIDE" and d.get("person") and float(d.get("conf", 0)) >= 0.5
                 and now - hub.last_vision_add >= 10):
             hub.last_vision_add = now
-            vid = hub.sim.add_victim_here(float(d.get("conf", 0)))
-            hub.log(f"IA thermique : personne détectée (confiance {float(d.get('conf', 0)):.0%})"
-                    + (f" : {vid}" if vid else ""), "victim")
+            conf = float(d.get("conf", 0))
+            vid = hub.sim.add_victim_here(conf)
+            if vid:                      # le journal le dit au prochain pas (_watch_victims)
+                hub.vision_found[vid] = conf
     return jsonify(ok=True)
 
 
@@ -500,6 +520,16 @@ def api_voice_next():
     with hub.lock:
         hub.health["voix"] = time.time()
         return jsonify(hub.voice_queue.pop(0) if hub.voice_queue else {})
+
+
+@app.post("/api/voice/done")
+def api_voice_done():
+    vid = body().get("victim")
+    with hub.lock:
+        hub.health["voix"] = time.time()
+        if vid in hub.talk_until:
+            hub.talk_until[vid] = time.time() + 0.5      # message fini : le drone repart
+    return jsonify(ok=True)
 
 
 @app.post("/api/voice")

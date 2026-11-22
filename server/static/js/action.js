@@ -75,6 +75,33 @@ const Action = {
   },
 };
 
+// ------------------------------------------------------------------ barre d'infos
+// Les mesures importantes, une ligne courte par zone en alerte (la plus grave d'abord),
+// au-dessus de la carte au lieu d'étiquettes et de fenêtres qui s'ouvrent sur le plan.
+// Un clic ouvre la fiche détaillée de la zone.
+const InfoBar = {
+  last: "",
+  onState(s) {
+    const el = document.getElementById("mapInfo");
+    if (!el) return;
+    const names = Object.fromEntries((Live.factory.zones || []).map(z => [z.id, z.label_fr || z.name || ""]));
+    const rank = { DANGER: 2, WARNING: 1 };
+    const items = Object.entries(s.zones || {})
+      .filter(([, z]) => rank[z.level] && z.top && z.top.length)
+      .map(([id, z]) => ({ id, lvl: z.level, r: z.top[0] }))
+      .sort((a, b) => rank[b.lvl] - rank[a.lvl] || b.r.score - a.r.score)
+      .slice(0, 3);
+    const html = items.map(i => `<button type="button" class="mi ${i.lvl === "DANGER" ? "mi-red" : "mi-amber"}" data-z="${i.id}" title="Voir le détail de la zone">
+        <b>${U.esc(i.id)}</b><span class="mi-zn">${U.esc(names[i.id])}</span>
+        <span class="mi-val">${U.esc(i.r.label)} ${U.esc(U.fmt(i.r.value))} ${U.esc(i.r.unit)}${i.r.trend === "up" ? " ↑" : ""}</span></button>`).join("");
+    if (html === this.last) return;
+    this.last = html;
+    // hauteur fixe, même vide : la carte ne saute pas quand une alerte apparaît
+    el.innerHTML = html || '<span class="mi-ok">Aucune mesure anormale</span>';
+    el.querySelectorAll("[data-z]").forEach(b => b.onclick = () => Loupe.open(b.dataset.z));
+  },
+};
+
 // ------------------------------------------------------------------ fiches de danger
 const HazardSheet = {
   // lignes de la fiche pour une zone : [{picto, tag, sev, text}]
@@ -141,6 +168,6 @@ const HazardSheet = {
 
 (function waitLive() {
   if (typeof Live === "undefined" || !Live.factory) { setTimeout(waitLive, 100); return; }
-  Live.on((s) => Action.onState(s));
-  if (Live.s) Action.onState(Live.s);
+  Live.on((s) => { Action.onState(s); InfoBar.onState(s); });
+  if (Live.s) { Action.onState(Live.s); InfoBar.onState(Live.s); }
 })();
